@@ -69,7 +69,20 @@ class MealieClient:
                 f"{self.base_url}/api/recipes/{slug}",
                 headers=self._headers,
                 json=data,
+                timeout=30,
             )
+            if resp.status_code >= 400:
+                body = resp.text[:500]
+                logger.error("Mealie PATCH %s returned %s: %s", slug, resp.status_code, body)
+                # Try PUT as fallback
+                resp = await client.put(
+                    f"{self.base_url}/api/recipes/{slug}",
+                    headers=self._headers,
+                    json=data,
+                    timeout=30,
+                )
+                if resp.status_code >= 400:
+                    logger.error("Mealie PUT %s returned %s: %s", slug, resp.status_code, resp.text[:500])
             resp.raise_for_status()
             return resp.json()
 

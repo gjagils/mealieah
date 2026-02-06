@@ -1,10 +1,43 @@
 import base64
+import io
 import json
 
 import anthropic
+from PIL import Image, ImageOps
 
 from app.config import settings
 from app.logging_config import logger
+
+MAX_IMAGE_BYTES = 4_800_000  # Claude API limit is 5MB, keep margin
+
+
+def _resize_for_api(image_data: bytes, media_type: str) -> tuple[bytes, str]:
+    """Resize and compress image to fit within Claude's 5MB limit."""
+    if len(image_data) <= MAX_IMAGE_BYTES:
+        return image_data, media_type
+
+    img = Image.open(io.BytesIO(image_data))
+    img = ImageOps.exif_transpose(img)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    # Progressively reduce size until under limit
+    quality = 85
+    max_dim = 2048
+    while True:
+        img_resized = img.copy()
+        img_resized.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        buf = io.BytesIO()
+        img_resized.save(buf, format="JPEG", quality=quality)
+        result = buf.getvalue()
+        if len(result) <= MAX_IMAGE_BYTES:
+            logger.info("Resized image: %d -> %d bytes (max_dim=%d, q=%d)",
+                        len(image_data), len(result), max_dim, quality)
+            return result, "image/jpeg"
+        if quality > 50:
+            quality -= 10
+        else:
+            max_dim = int(max_dim * 0.75)
 
 SYSTEM_PROMPT = """Je bent een expert in het lezen van recepten uit foto's.
 Analyseer alle foto's en extraheer het recept in een gestructureerd JSON formaat.
@@ -25,16 +58,20 @@ Antwoord ALLEEN met valid JSON, geen tekst eromheen. Gebruik dit formaat:
         "2 teentjes knoflook"
     ],
     "instructions": [
-        "Verwarm de oven voor op 180 graden.",
-        "Snijd de kipfilet in blokjes.",
-        "Bak de ui glazig in een pan."
+        "Verwarm de oven voor op 180 graden. Snijd de kipfilet in blokjes en kruid met peper en zout.",
+        "Bak de kipfilet in een pan met olie. Voeg de ui toe en bak kort mee.",
+        "Meng de rucola met munt, citroensap en olijfolie. Verdeel over de borden."
     ],
     "food_photo_index": 0
 }
 
 Regels:
 - Schrijf ingrediënten zoals ze in het recept staan (met hoeveelheid en eenheid)
-- Schrijf elke bereidingsstap als een aparte zin
+- BELANGRIJK voor bereidingsstappen: behoud de originele stap-indeling van het recept.
+  Als het recept genummerde stappen heeft (1, 2, 3...) of stappen met titels, gebruik
+  dan dezelfde stappen. Eén stap kan meerdere zinnen bevatten. Maak NIET van elke zin
+  een aparte stap. Voorbeeld: als stap 1 drie zinnen bevat, dan is dat één item in de
+  instructions lijst met alle drie de zinnen.
 - Als iets niet leesbaar is, doe je beste gok op basis van context
 - Houd de taal van het originele recept aan (meestal Nederlands)
 - Als je meerdere recepten ziet, neem alleen het meest prominente recept
@@ -55,9 +92,10 @@ async def scan_recipe_images(images: list[tuple[bytes, str]]) -> dict:
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-    # Build content blocks: all images + one text prompt
+    # Build content blocks: all images (resized if needed) + one text prompt
     content = []
     for i, (image_data, media_type) in enumerate(images):
+        image_data, media_type = _resize_for_api(image_data, media_type)
         image_b64 = base64.b64encode(image_data).decode("utf-8")
         content.append({
             "type": "image",
