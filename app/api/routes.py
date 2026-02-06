@@ -345,34 +345,41 @@ async def toggle_logging(
     return RedirectResponse("/settings", status_code=303)
 
 
-@router.post("/settings/ah-login")
-async def ah_login(
+@router.post("/settings/ah-code")
+async def ah_code_exchange(
     request: Request,
-    username: str = Form(""),
-    password: str = Form(""),
+    callback_url: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    username = username.strip()
-    password = password.strip()
-    if not username or not password:
-        return await _render_settings(request, db, ah_login_error="Vul e-mail en wachtwoord in.")
+    raw = callback_url.strip()
+    if not raw:
+        return await _render_settings(request, db, ah_login_error="Plak de URL uit je adresbalk.")
+
+    # Extract code from callback URL (appie://login-exit?code=XXXXX)
+    from urllib.parse import parse_qs, urlparse
+    try:
+        parsed = urlparse(raw)
+        code = parse_qs(parsed.query).get("code", [None])[0]
+    except Exception:
+        code = None
+
+    # If it's not a URL, treat the whole input as the code
+    if not code:
+        code = raw
 
     try:
-        data = await ah_client.login(username, password)
+        data = await ah_client.exchange_code(code)
         _set_setting(db, "ah_user_token", data["access_token"])
         _set_setting(db, "ah_refresh_token", data["refresh_token"])
-        logger.info("AH login successful for %s", username)
+        logger.info("AH account gekoppeld via OAuth2 code")
         return await _render_settings(request, db, ah_login_success=True)
     except httpx.HTTPStatusError as e:
-        logger.error("AH login failed (HTTP %s): %s", e.response.status_code, e)
-        if e.response.status_code == 401:
-            msg = "Onjuist e-mailadres of wachtwoord."
-        else:
-            msg = f"AH login mislukt (HTTP {e.response.status_code})."
+        logger.error("AH code exchange failed (HTTP %s): %s", e.response.status_code, e)
+        msg = f"Code ongeldig of verlopen (HTTP {e.response.status_code}). Probeer opnieuw."
         return await _render_settings(request, db, ah_login_error=msg)
     except Exception as e:
-        logger.error("AH login failed: %s", e)
-        return await _render_settings(request, db, ah_login_error=f"Inloggen mislukt: {e}")
+        logger.error("AH code exchange failed: %s", e)
+        return await _render_settings(request, db, ah_login_error=f"Koppelen mislukt: {e}")
 
 
 async def _render_settings(
@@ -393,6 +400,7 @@ async def _render_settings(
             "ah_token_set": bool(ah_token),
             "ah_refresh_set": bool(ah_refresh),
             "mealie_ok": mealie_ok,
+            "ah_login_url": ah_client.get_login_url(),
             "ah_login_error": ah_login_error,
             "ah_login_success": ah_login_success,
         },

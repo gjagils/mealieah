@@ -47,26 +47,36 @@
     </form>
 </section>
 
-<!-- AH Login -->
+<!-- AH Koppeling -->
 <section class="settings-section">
     <h2>Albert Heijn koppeling</h2>
     <p class="muted">
-        Log in met je AH account. De app bewaart je tokens en refresht ze automatisch.
+        Koppel je AH account in twee stappen. Daarna refresht de app automatisch.
     </p>
-    <form method="post" action="/settings/ah-login" id="ah-login-form" style="margin-top: 0.75rem">
-        <div class="form-group" style="flex-direction: column; gap: 0.5rem;">
-            <input type="email" name="username" placeholder="E-mailadres" required
-                   class="form-input" autocomplete="email">
-            <input type="password" name="password" placeholder="Wachtwoord" required
-                   class="form-input" autocomplete="current-password">
-            <button type="submit" class="btn" id="ah-login-btn">Inloggen</button>
-        </div>
+    <div style="margin-top: 0.75rem;">
+        <p><strong>Stap 1:</strong> Log in bij Albert Heijn</p>
+        <a href="{{ ah_login_url }}" target="_blank" class="btn" style="display: inline-block; margin: 0.5rem 0;">
+            Inloggen bij ah.nl &rarr;
+        </a>
+        <p class="muted" style="margin-top: 0.25rem;">
+            Na het inloggen probeert de browser naar <code>appie://...</code> te gaan.
+            Die pagina laadt niet — dat is normaal.
+        </p>
+
+        <p style="margin-top: 1rem;"><strong>Stap 2:</strong> Plak de URL uit je adresbalk</p>
+        <form method="post" action="/settings/ah-code">
+            <div class="form-group">
+                <input type="text" name="callback_url" placeholder="appie://login-exit?code=..."
+                       class="form-input" autocomplete="off" style="font-family: monospace; font-size: 0.85rem;">
+                <button type="submit" class="btn">Koppelen</button>
+            </div>
+        </form>
         {% if ah_login_error %}
-        <p class="error-text" style="color: #c0392b; margin-top: 0.5rem;">{{ ah_login_error }}</p>
+        <p style="color: #c0392b; margin-top: 0.5rem;">{{ ah_login_error }}</p>
         {% endif %}
         {% if ah_login_success %}
-        <p style="color: #27ae60; margin-top: 0.5rem;">Succesvol ingelogd!</p>
+        <p style="color: #27ae60; margin-top: 0.5rem;">Succesvol gekoppeld!</p>
         {% endif %}
-    </form>
+    </div>
 </section>
 {% endblock %}

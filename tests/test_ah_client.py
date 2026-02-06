@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from app.clients.ah import AH_AUTH_URL, AH_CART_URL, AH_LOGIN_URL, AH_REFRESH_URL, AH_SEARCH_URL, AHClient
+from app.clients.ah import AH_AUTH_URL, AH_CART_URL, AH_REFRESH_URL, AH_SEARCH_URL, AH_TOKEN_URL, AHClient
 
 
 @pytest.fixture
@@ -189,28 +189,35 @@ async def test_cart_auto_refresh_on_401(ah):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_login_success(ah):
-    respx.post(AH_LOGIN_URL).mock(
+async def test_exchange_code_success(ah):
+    respx.post(AH_TOKEN_URL).mock(
         return_value=httpx.Response(200, json={
-            "access_token": "login-access-tok",
-            "refresh_token": "login-refresh-tok",
+            "access_token": "code-access-tok",
+            "refresh_token": "code-refresh-tok",
             "expires_in": 604798,
         })
     )
 
-    result = await ah.login("user@example.com", "password123")
-    assert result["access_token"] == "login-access-tok"
-    assert result["refresh_token"] == "login-refresh-tok"
-    assert ah._user_token == "login-access-tok"
-    assert ah._user_refresh_token == "login-refresh-tok"
+    result = await ah.exchange_code("valid-auth-code")
+    assert result["access_token"] == "code-access-tok"
+    assert result["refresh_token"] == "code-refresh-tok"
+    assert ah._user_token == "code-access-tok"
+    assert ah._user_refresh_token == "code-refresh-tok"
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_login_invalid_credentials(ah):
-    respx.post(AH_LOGIN_URL).mock(
-        return_value=httpx.Response(401, json={"error": "invalid_grant"})
+async def test_exchange_code_invalid(ah):
+    respx.post(AH_TOKEN_URL).mock(
+        return_value=httpx.Response(400, json={"message": "Incorrect request"})
     )
 
     with pytest.raises(httpx.HTTPStatusError):
-        await ah.login("user@example.com", "wrongpassword")
+        await ah.exchange_code("invalid-code")
+
+
+def test_get_login_url():
+    url = AHClient.get_login_url()
+    assert "login.ah.nl" in url
+    assert "client_id=appie" in url
+    assert "response_type=code" in url

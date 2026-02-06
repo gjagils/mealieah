@@ -5,7 +5,9 @@ import httpx
 from app.logging_config import logger
 
 AH_AUTH_URL = "https://api.ah.nl/mobile-auth/v1/auth/token/anonymous"
-AH_LOGIN_URL = "https://api.ah.nl/mobile-auth/v1/auth/token"
+AH_TOKEN_URL = "https://api.ah.nl/mobile-auth/v1/auth/token"
+AH_AUTHORIZE_URL = "https://login.ah.nl/secure/oauth/authorize"
+AH_REDIRECT_URI = "appie://login-exit"
 AH_REFRESH_URL = "https://api.ah.nl/mobile-auth/v1/auth/token/refresh"
 AH_SEARCH_URL = "https://api.ah.nl/mobile-services/product/search/v2"
 AH_CART_URL = "https://api.ah.nl/mobile-services/shoppinglist/v2/items"
@@ -40,24 +42,28 @@ class AHClient:
             logger.info("Obtained anonymous AH token")
             return self._anonymous_token
 
-    async def login(self, username: str, password: str) -> dict:
-        """Login with AH credentials, returns tokens dict."""
+    @staticmethod
+    def get_login_url() -> str:
+        """Return the AH OAuth2 login URL."""
+        return (
+            f"{AH_AUTHORIZE_URL}?client_id=appie"
+            f"&redirect_uri={AH_REDIRECT_URI}&response_type=code"
+        )
+
+    async def exchange_code(self, code: str) -> dict:
+        """Exchange an OAuth2 authorization code for tokens."""
         async with httpx.AsyncClient() as client:
-            logger.info("Logging in to AH with username: %s", username)
+            logger.info("Exchanging AH authorization code for tokens")
             resp = await client.post(
-                AH_LOGIN_URL,
+                AH_TOKEN_URL,
                 headers=DEFAULT_HEADERS,
-                json={
-                    "clientId": "appie",
-                    "username": username,
-                    "password": password,
-                },
+                json={"code": code, "clientId": "appie"},
             )
             resp.raise_for_status()
             data = resp.json()
             self._user_token = data["access_token"]
             self._user_refresh_token = data["refresh_token"]
-            logger.info("AH login successful")
+            logger.info("AH code exchange successful")
             return data
 
     def set_user_tokens(
