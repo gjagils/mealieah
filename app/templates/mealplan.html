@@ -2,24 +2,30 @@
 {% block title %}Weekmenu - Mealieah{% endblock %}
 {% block content %}
 <h1>Weekmenu</h1>
-<p class="muted">{{ start }} t/m {{ end }}</p>
 
-{% if not plans %}
-<p class="muted">Geen maaltijden gepland deze week in Mealie.</p>
-{% else %}
-<div class="plan-list">
-    {% for plan in plans %}
-    <div class="plan-item">
-        <span class="plan-type">{{ plan.entryType or plan.get("mealPlanType", "") }}</span>
-        {% if plan.recipe %}
-        <a href="/recipe/{{ plan.recipe.slug }}">{{ plan.recipe.name }}</a>
-        {% elif plan.title %}
-        <span>{{ plan.title }}</span>
-        {% endif %}
+<div class="week-grid">
+    {% for day in weekdays %}
+    <div class="day-block day-{{ day.status }}">
+        <div class="day-header">{{ day.name }}</div>
+        <div class="day-date">{{ day.date[8:] }}/{{ day.date[5:7] }}</div>
+        <div class="day-content">
+            {% if day.recipes %}
+                {% for recipe in day.recipes %}
+                <a href="/recipe/{{ recipe.slug }}" class="day-recipe">{{ recipe.name }}</a>
+                {% endfor %}
+            {% else %}
+                <span class="muted">—</span>
+            {% endif %}
+        </div>
     </div>
     {% endfor %}
 </div>
-{% endif %}
+
+<div class="legend">
+    <span class="legend-item"><span class="legend-dot dot-ready"></span> Alles gemapped</span>
+    <span class="legend-item"><span class="legend-dot dot-needs-mapping"></span> Nog te mappen</span>
+    <span class="legend-item"><span class="legend-dot dot-empty"></span> Geen maaltijd</span>
+</div>
 
 <hr>
 
@@ -49,7 +55,7 @@
     <tbody>
         {% for item in cart_items %}
         <tr>
-            <td>{{ item.recipe_name }}</td>
+            <td><a href="/recipe/{{ item.recipe_slug }}">{{ item.recipe_name }}</a></td>
             <td>{{ item.ingredient_display }}</td>
             <td>
                 <div class="ah-product">
@@ -59,7 +65,7 @@
                     <span>{{ item.ah_product_name }}</span>
                 </div>
             </td>
-            <td>{{ item.ah_quantity }}</td>
+            <td>{{ item.ah_quantity }}x</td>
         </tr>
         {% endfor %}
     </tbody>
@@ -70,7 +76,7 @@
         Vul AH mandje ({{ cart_items|length }} producten)
     </button>
     {% if not has_token %}
-    <p class="muted">Stel eerst je AH token in via <a href="/settings">Instellingen</a>.</p>
+    <p class="muted">Koppel eerst je AH account via <a href="/settings">Instellingen</a>.</p>
     {% endif %}
     <div id="cart-result"></div>
 </div>

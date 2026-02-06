@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.ah import ah_client
 from app.clients.mealie import mealie_client
+from app.config import settings
 from app.database import get_db
 from app.logging_config import logger, set_log_level
 from app.models import AppSetting, IngredientMapping
@@ -114,6 +115,7 @@ async def recipe_detail(request: Request, slug: str, db: Session = Depends(get_d
             "request": request,
             "recipe": recipe,
             "ingredients": enriched,
+            "mealie_external_url": settings.mealie_external_url,
         },
     )
 
@@ -232,31 +234,74 @@ async def delete_mapping(
 @router.get("/mealplan", response_class=HTMLResponse)
 async def mealplan_page(request: Request, db: Session = Depends(get_db)):
     today = date.today()
-    start = today - timedelta(days=today.weekday())  # Monday
-    end = start + timedelta(days=6)  # Sunday
+    monday = today - timedelta(days=today.weekday())  # Monday
+    friday = monday + timedelta(days=4)  # Friday
 
-    logger.debug("Loading meal plan %s to %s", start, end)
+    logger.debug("Loading meal plan %s to %s", monday, friday)
     try:
-        plans = await mealie_client.get_mealplans(str(start), str(end))
+        plans = await mealie_client.get_mealplans(str(monday), str(friday))
     except Exception as e:
         logger.error("Failed to fetch meal plans: %s", e)
         plans = []
 
-    # Collect all recipe slugs from the meal plan
-    recipe_slugs = set()
+    # Group plans by date
+    plans_by_date: dict[str, list] = {}
     for plan in plans:
-        recipe = plan.get("recipe") or {}
-        slug = recipe.get("slug") or plan.get("recipeId", "")
-        if slug:
-            recipe_slugs.add(slug)
+        d = plan.get("date", "")
+        plans_by_date.setdefault(d, []).append(plan)
 
-    # Load all mappings for those recipes
+    # Build weekday structure
+    day_names = ["Ma", "Di", "Wo", "Do", "Vr"]
+    all_recipe_slugs: set[str] = set()
+    weekdays = []
+    for i in range(5):
+        day_date = monday + timedelta(days=i)
+        day_plans = plans_by_date.get(str(day_date), [])
+        recipes = []
+        for plan in day_plans:
+            recipe = plan.get("recipe") or {}
+            slug = recipe.get("slug", "")
+            if slug:
+                all_recipe_slugs.add(slug)
+                recipes.append({"slug": slug, "name": recipe.get("name", ""), "id": recipe.get("id", "")})
+        weekdays.append({"name": day_names[i], "date": str(day_date), "recipes": recipes})
+
+    # Get mapping stats per recipe
+    from sqlalchemy import case, func
+    mapping_stats: dict[str, dict] = {}
+    if all_recipe_slugs:
+        counts = db.execute(
+            select(
+                IngredientMapping.recipe_slug,
+                func.count().label("total"),
+                func.count(case((IngredientMapping.status == "mapped", 1))).label("mapped"),
+                func.count(case((IngredientMapping.status == "skipped", 1))).label("skipped"),
+            ).where(
+                IngredientMapping.recipe_slug.in_(all_recipe_slugs)
+            ).group_by(IngredientMapping.recipe_slug)
+        ).all()
+        mapping_stats = {r.recipe_slug: {"total": r.total, "mapped": r.mapped, "skipped": r.skipped} for r in counts}
+
+    # Determine status per day: ready (green), needs_mapping (orange), empty (blue)
+    for day in weekdays:
+        if not day["recipes"]:
+            day["status"] = "empty"
+        else:
+            all_done = True
+            for recipe in day["recipes"]:
+                stats = mapping_stats.get(recipe["slug"])
+                if not stats or (stats["total"] - stats["mapped"] - stats["skipped"]) > 0:
+                    all_done = False
+                    break
+            day["status"] = "ready" if all_done else "needs_mapping"
+
+    # Cart items and unmapped for shopping list
     all_items = []
     unmapped_items = []
-    if recipe_slugs:
+    if all_recipe_slugs:
         mappings = db.execute(
             select(IngredientMapping).where(
-                IngredientMapping.recipe_slug.in_(recipe_slugs)
+                IngredientMapping.recipe_slug.in_(all_recipe_slugs)
             )
         ).scalars().all()
         for m in mappings:
@@ -271,9 +316,7 @@ async def mealplan_page(request: Request, db: Session = Depends(get_db)):
         "mealplan.html",
         {
             "request": request,
-            "plans": plans,
-            "start": str(start),
-            "end": str(end),
+            "weekdays": weekdays,
             "cart_items": all_items,
             "unmapped_items": unmapped_items,
             "has_token": has_token,

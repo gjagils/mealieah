@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     postgres_db: str = "mealie"
 
     log_level: str = "INFO"
+    mealie_external_url: str = ""
 
     @property
     def database_url(self) -> str:
