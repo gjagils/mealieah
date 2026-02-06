@@ -8,7 +8,7 @@
 <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
     <h1 style="margin-bottom: 0;">{{ recipe.name }}</h1>
     {% if mealie_external_url %}
-    <a href="{{ mealie_external_url }}/recipe/{{ recipe.slug }}" target="_blank" class="btn btn-sm" title="Bewerk in Mealie">
+    <a href="{{ mealie_external_url }}/g/home/r/{{ recipe.slug }}" target="_blank" class="btn btn-sm" title="Bewerk in Mealie">
         Bewerk in Mealie
     </a>
     {% endif %}
