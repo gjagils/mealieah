@@ -1,5 +1,6 @@
 from datetime import date, timedelta
 
+import httpx
 from fastapi import APIRouter, Depends, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -305,11 +306,16 @@ async def fill_cart(db: Session = Depends(get_db)):
                 "name": m.ah_product_name,
             }
 
-    token = _get_setting(db, "ah_user_token")
-    if not token:
+    access_token = _get_setting(db, "ah_user_token")
+    refresh_token = _get_setting(db, "ah_refresh_token")
+    if not access_token and not refresh_token:
         return {"ok": False, "error": "AH token niet ingesteld. Ga naar Instellingen."}
 
-    ah_client.set_user_token(token)
+    def _save_tokens(new_access: str, new_refresh: str) -> None:
+        _set_setting(db, "ah_user_token", new_access)
+        _set_setting(db, "ah_refresh_token", new_refresh)
+
+    ah_client.set_user_tokens(access_token, refresh_token, on_tokens_updated=_save_tokens)
     try:
         await ah_client.add_to_cart(list(cart.values()))
     except Exception as e:
@@ -326,6 +332,7 @@ async def fill_cart(db: Session = Depends(get_db)):
 async def settings_page(request: Request, db: Session = Depends(get_db)):
     verbose = _get_setting(db, "verbose_logging") == "true"
     ah_token = _get_setting(db, "ah_user_token")
+    ah_refresh = _get_setting(db, "ah_refresh_token")
     mealie_ok = await mealie_client.health_check()
     return templates.TemplateResponse(
         "settings.html",
@@ -333,6 +340,7 @@ async def settings_page(request: Request, db: Session = Depends(get_db)):
             "request": request,
             "verbose_logging": verbose,
             "ah_token_set": bool(ah_token),
+            "ah_refresh_set": bool(ah_refresh),
             "mealie_ok": mealie_ok,
         },
     )
@@ -352,9 +360,30 @@ async def toggle_logging(
 
 @router.post("/settings/ah-token")
 async def save_ah_token(
-    ah_token: str = Form(""),
+    ah_refresh_token: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    _set_setting(db, "ah_user_token", ah_token.strip())
-    logger.info("AH token updated")
+    refresh_token = ah_refresh_token.strip()
+    if not refresh_token:
+        return RedirectResponse("/settings", status_code=303)
+
+    # Immediately use the refresh token to get a fresh access token
+    from app.clients.ah import AH_REFRESH_URL, DEFAULT_HEADERS
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                AH_REFRESH_URL,
+                headers=DEFAULT_HEADERS,
+                json={"refreshToken": refresh_token, "clientId": "appie"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            _set_setting(db, "ah_user_token", data["access_token"])
+            _set_setting(db, "ah_refresh_token", data["refresh_token"])
+            logger.info("AH tokens saved via refresh token")
+    except Exception as e:
+        logger.error("Failed to validate refresh token: %s", e)
+        _set_setting(db, "ah_refresh_token", refresh_token)
+        logger.info("Stored refresh token as-is (validation failed: %s)", e)
+
     return RedirectResponse("/settings", status_code=303)

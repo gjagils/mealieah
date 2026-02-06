@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from app.clients.ah import AH_AUTH_URL, AH_CART_URL, AH_SEARCH_URL, AHClient
+from app.clients.ah import AH_AUTH_URL, AH_CART_URL, AH_REFRESH_URL, AH_SEARCH_URL, AHClient
 
 
 @pytest.fixture
@@ -121,5 +121,67 @@ async def test_add_to_cart(ah):
 
 @pytest.mark.asyncio
 async def test_add_to_cart_no_token(ah):
-    with pytest.raises(ValueError, match="AH user token required"):
+    with pytest.raises(ValueError, match="AH token niet ingesteld"):
         await ah.add_to_cart([{"product_id": 1, "quantity": 1}])
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_refresh_user_token(ah):
+    ah._user_refresh_token = "old-refresh"
+    respx.post(AH_REFRESH_URL).mock(
+        return_value=httpx.Response(200, json={
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "expires_in": 604798,
+        })
+    )
+
+    result = await ah._refresh_user_token()
+    assert result is True
+    assert ah._user_token == "new-access"
+    assert ah._user_refresh_token == "new-refresh"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_refresh_callback_called(ah):
+    saved = {}
+    def on_update(access, refresh):
+        saved["access"] = access
+        saved["refresh"] = refresh
+
+    ah.set_user_tokens("old-access", "old-refresh", on_tokens_updated=on_update)
+    respx.post(AH_REFRESH_URL).mock(
+        return_value=httpx.Response(200, json={
+            "access_token": "new-access",
+            "refresh_token": "new-refresh",
+            "expires_in": 604798,
+        })
+    )
+
+    await ah._refresh_user_token()
+    assert saved["access"] == "new-access"
+    assert saved["refresh"] == "new-refresh"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cart_auto_refresh_on_401(ah):
+    ah.set_user_tokens("expired-access", "valid-refresh")
+    respx.post(AH_REFRESH_URL).mock(
+        return_value=httpx.Response(200, json={
+            "access_token": "fresh-access",
+            "refresh_token": "fresh-refresh",
+            "expires_in": 604798,
+        })
+    )
+    cart_route = respx.patch(AH_CART_URL)
+    cart_route.side_effect = [
+        httpx.Response(401),
+        httpx.Response(200, json={"success": True}),
+    ]
+
+    result = await ah.add_to_cart([{"product_id": 1, "quantity": 1}])
+    assert result == {"success": True}
+    assert ah._user_token == "fresh-access"

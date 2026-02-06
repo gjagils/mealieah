@@ -18,12 +18,15 @@
             </td>
         </tr>
         <tr>
-            <td>AH token</td>
+            <td>AH koppeling</td>
             <td>
-                {% if ah_token_set %}
-                <span class="badge badge-mapped">Ingesteld</span>
+                {% if ah_refresh_set %}
+                <span class="badge badge-mapped">Gekoppeld</span>
+                <small class="muted">(auto-refresh actief)</small>
+                {% elif ah_token_set %}
+                <span class="badge badge-skipped">Alleen access token</span>
                 {% else %}
-                <span class="badge badge-unmapped">Niet ingesteld</span>
+                <span class="badge badge-unmapped">Niet gekoppeld</span>
                 {% endif %}
             </td>
         </tr>
@@ -46,14 +49,24 @@
 
 <!-- AH Token -->
 <section class="settings-section">
-    <h2>Albert Heijn Token</h2>
+    <h2>Albert Heijn koppeling</h2>
     <p class="muted">
-        Om je AH winkelmandje te vullen heb je een access token nodig van je AH account.
-        Dit kun je ophalen uit de AH app of via browser developer tools op <code>ah.nl</code>.
+        Voer eenmalig een refresh token in. De app refresht daarna automatisch — je hoeft dit niet te herhalen.
     </p>
-    <form method="post" action="/settings/ah-token">
+    <details class="ah-instructions">
+        <summary>Hoe krijg ik een refresh token?</summary>
+        <ol>
+            <li>Open <code>ah.nl</code> en log in op je account</li>
+            <li>Open Developer Tools (F12) &rarr; tabblad <strong>Network</strong></li>
+            <li>Filter op <code>token</code></li>
+            <li>Klik op een request naar <code>mobile-auth</code></li>
+            <li>In de <strong>Response</strong> vind je <code>refresh_token</code></li>
+            <li>Kopieer die waarde en plak hieronder</li>
+        </ol>
+    </details>
+    <form method="post" action="/settings/ah-token" style="margin-top: 0.75rem">
         <div class="form-group">
-            <input type="password" name="ah_token" placeholder="Plak je AH access token hier"
+            <input type="password" name="ah_refresh_token" placeholder="Plak je AH refresh token hier"
                    class="form-input" autocomplete="off">
             <button type="submit" class="btn">Opslaan</button>
         </div>
