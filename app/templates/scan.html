@@ -1,0 +1,318 @@
+{% extends "base.html" %}
+{% block title %}Recept scannen - Mealieah{% endblock %}
+{% block content %}
+<h1>Recept scannen</h1>
+<p class="muted">Maak foto's van een recept (bijv. voor- en achterkant van een receptenkaart) en sla het op in Mealie.</p>
+
+{% if not has_api_key %}
+<div class="warning-box">
+    <strong>Let op:</strong> Stel eerst <code>ANTHROPIC_API_KEY</code> in als environment variable in je docker-compose.
+</div>
+{% endif %}
+
+<!-- Step 1: Upload -->
+<section class="scan-section" id="step-upload">
+    <h2>1. Foto's uploaden</h2>
+    <div class="photo-grid" id="photo-grid">
+        <div class="photo-slot" id="slot-0" onclick="addPhoto(0)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 0)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">&#128247;</div>
+                <small>Foto 1</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 0)">&#10005;</button>
+            </div>
+        </div>
+        <div class="photo-slot" id="slot-1" onclick="addPhoto(1)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 1)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">+</div>
+                <small>Foto 2</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 1)">&#10005;</button>
+            </div>
+        </div>
+        <div class="photo-slot" id="slot-2" onclick="addPhoto(2)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 2)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">+</div>
+                <small>Foto 3</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 2)">&#10005;</button>
+            </div>
+        </div>
+        <div class="photo-slot" id="slot-3" onclick="addPhoto(3)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 3)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">+</div>
+                <small>Foto 4</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 3)">&#10005;</button>
+            </div>
+        </div>
+    </div>
+    <p class="muted" style="margin-top: 0.5rem;">Upload 1-4 foto's. Bij meerdere foto's (bijv. voor- en achterkant) worden ze gecombineerd tot 1 recept. De foto van het gerecht wordt als afbeelding in Mealie gezet.</p>
+    <button class="btn btn-primary" id="scan-btn" onclick="scanImages()" disabled style="margin-top: 1rem;">
+        Recept herkennen
+    </button>
+    <div id="scan-status"></div>
+</section>
+
+<!-- Step 2: Preview & Edit -->
+<section class="scan-section" id="step-preview" style="display:none">
+    <h2>2. Controleer het recept</h2>
+    <div id="food-photo-preview" style="display:none; margin-bottom: 1rem;">
+        <img id="food-photo-img" style="max-height: 200px; border-radius: 8px;">
+        <p class="muted" style="margin-top: 0.25rem;">Deze foto wordt als receptafbeelding gebruikt</p>
+    </div>
+    <div class="scan-form">
+        <label>Naam</label>
+        <input type="text" id="recipe-name" class="form-input">
+
+        <label>Beschrijving</label>
+        <input type="text" id="recipe-description" class="form-input">
+
+        <div style="display: flex; gap: 1rem;">
+            <div style="flex:1">
+                <label>Porties</label>
+                <input type="text" id="recipe-yield" class="form-input">
+            </div>
+            <div style="flex:1">
+                <label>Bereidingstijd</label>
+                <input type="text" id="recipe-time" class="form-input">
+            </div>
+        </div>
+
+        <label>Ingredienten</label>
+        <textarea id="recipe-ingredients" class="form-textarea" rows="8" placeholder="Een ingredient per regel"></textarea>
+
+        <label>Bereidingswijze</label>
+        <textarea id="recipe-instructions" class="form-textarea" rows="8" placeholder="Een stap per regel"></textarea>
+    </div>
+    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+        <button class="btn btn-primary" id="save-btn" onclick="saveRecipe()">
+            Opslaan in Mealie
+        </button>
+        <button class="btn" onclick="backToUpload()">Terug</button>
+    </div>
+    <div id="save-status"></div>
+</section>
+
+<!-- Step 3: Done -->
+<section class="scan-section" id="step-done" style="display:none">
+    <h2>Opgeslagen!</h2>
+    <p>Het recept is aangemaakt in Mealie.</p>
+    <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+        <a id="view-recipe-link" href="#" class="btn btn-primary">Bekijk in Mealieah</a>
+        {% if mealie_external_url %}
+        <a id="view-mealie-link" href="#" target="_blank" class="btn">Bewerk in Mealie</a>
+        {% endif %}
+        <button class="btn" onclick="resetScan()">Nog een recept</button>
+    </div>
+</section>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const mealieExternalUrl = "{{ mealie_external_url | default('', true) }}";
+const selectedFiles = [null, null, null, null];
+let foodPhotoIndex = null;
+let foodPhotoFile = null;
+
+function addPhoto(slot) {
+    const el = document.querySelector(`#slot-${slot} input[type=file]`);
+    if (el && !selectedFiles[slot]) el.click();
+}
+
+function onFileSelected(input, slot) {
+    const file = input.files[0];
+    if (!file) return;
+    selectedFiles[slot] = file;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const slotEl = document.getElementById(`slot-${slot}`);
+        slotEl.querySelector('.photo-slot-empty').style.display = 'none';
+        const preview = slotEl.querySelector('.photo-slot-preview');
+        preview.style.display = 'block';
+        preview.querySelector('img').src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    updateScanButton();
+}
+
+function removePhoto(event, slot) {
+    event.stopPropagation();
+    selectedFiles[slot] = null;
+    const slotEl = document.getElementById(`slot-${slot}`);
+    slotEl.querySelector('input[type=file]').value = '';
+    slotEl.querySelector('.photo-slot-empty').style.display = 'flex';
+    slotEl.querySelector('.photo-slot-preview').style.display = 'none';
+    updateScanButton();
+}
+
+function updateScanButton() {
+    const hasAny = selectedFiles.some(f => f !== null);
+    document.getElementById("scan-btn").disabled = !hasAny;
+}
+
+async function scanImages() {
+    const files = selectedFiles.filter(f => f !== null);
+    if (!files.length) return;
+
+    const btn = document.getElementById("scan-btn");
+    const status = document.getElementById("scan-status");
+    btn.disabled = true;
+    btn.textContent = "Bezig met herkennen...";
+    const n = files.length;
+    status.innerHTML = `<p class="muted">${n} foto${n > 1 ? "'s" : ""} worden geanalyseerd, dit kan 5-15 seconden duren...</p>`;
+
+    const formData = new FormData();
+    for (const f of files) {
+        formData.append("images", f);
+    }
+
+    try {
+        const resp = await fetch("/api/scan", { method: "POST", body: formData });
+        const data = await resp.json();
+        if (!data.ok) {
+            status.innerHTML = `<p class="error">${data.error}</p>`;
+            btn.disabled = false;
+            btn.textContent = "Recept herkennen";
+            return;
+        }
+
+        // Determine which photo to use as food photo
+        const idx = data.recipe.food_photo_index;
+        if (idx !== null && idx !== undefined && idx >= 0 && idx < files.length) {
+            foodPhotoIndex = idx;
+            foodPhotoFile = files[idx];
+        } else {
+            // Default to first photo
+            foodPhotoIndex = 0;
+            foodPhotoFile = files[0];
+        }
+
+        showPreview(data.recipe);
+    } catch (e) {
+        status.innerHTML = `<p class="error">Fout: ${e.message}</p>`;
+        btn.disabled = false;
+        btn.textContent = "Recept herkennen";
+    }
+}
+
+function showPreview(recipe) {
+    document.getElementById("recipe-name").value = recipe.name || "";
+    document.getElementById("recipe-description").value = recipe.description || "";
+    document.getElementById("recipe-yield").value = recipe.recipe_yield || "";
+    document.getElementById("recipe-time").value = recipe.total_time || "";
+    document.getElementById("recipe-ingredients").value = (recipe.ingredients || []).join("\n");
+    document.getElementById("recipe-instructions").value = (recipe.instructions || []).join("\n");
+
+    // Show food photo preview
+    if (foodPhotoFile) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            document.getElementById("food-photo-img").src = ev.target.result;
+            document.getElementById("food-photo-preview").style.display = "block";
+        };
+        reader.readAsDataURL(foodPhotoFile);
+    }
+
+    document.getElementById("step-upload").style.display = "none";
+    document.getElementById("step-preview").style.display = "block";
+}
+
+function backToUpload() {
+    document.getElementById("step-preview").style.display = "none";
+    document.getElementById("step-upload").style.display = "block";
+    document.getElementById("food-photo-preview").style.display = "none";
+    document.getElementById("scan-btn").disabled = false;
+    document.getElementById("scan-btn").textContent = "Recept herkennen";
+    document.getElementById("scan-status").innerHTML = "";
+}
+
+async function saveRecipe() {
+    const btn = document.getElementById("save-btn");
+    const status = document.getElementById("save-status");
+    btn.disabled = true;
+    btn.textContent = "Opslaan...";
+    status.innerHTML = "";
+
+    const recipe = {
+        name: document.getElementById("recipe-name").value.trim(),
+        description: document.getElementById("recipe-description").value.trim(),
+        recipe_yield: document.getElementById("recipe-yield").value.trim(),
+        total_time: document.getElementById("recipe-time").value.trim(),
+        ingredients: document.getElementById("recipe-ingredients").value.split("\n").filter(l => l.trim()),
+        instructions: document.getElementById("recipe-instructions").value.split("\n").filter(l => l.trim()),
+    };
+
+    if (!recipe.name) {
+        status.innerHTML = '<p class="error">Vul een receptnaam in.</p>';
+        btn.disabled = false;
+        btn.textContent = "Opslaan in Mealie";
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("recipe_json", JSON.stringify(recipe));
+    if (foodPhotoFile) {
+        formData.append("food_photo", foodPhotoFile);
+    }
+
+    try {
+        const resp = await fetch("/api/scan/save", {
+            method: "POST",
+            body: formData,
+        });
+        const data = await resp.json();
+        if (!data.ok) {
+            status.innerHTML = `<p class="error">${data.error}</p>`;
+            btn.disabled = false;
+            btn.textContent = "Opslaan in Mealie";
+            return;
+        }
+
+        document.getElementById("view-recipe-link").href = `/recipe/${data.slug}`;
+        const mealieLink = document.getElementById("view-mealie-link");
+        if (mealieLink && mealieExternalUrl) {
+            mealieLink.href = `${mealieExternalUrl}/g/home/r/${data.slug}`;
+        }
+        document.getElementById("step-preview").style.display = "none";
+        document.getElementById("step-done").style.display = "block";
+    } catch (e) {
+        status.innerHTML = `<p class="error">Fout: ${e.message}</p>`;
+        btn.disabled = false;
+        btn.textContent = "Opslaan in Mealie";
+    }
+}
+
+function resetScan() {
+    for (let i = 0; i < 4; i++) {
+        selectedFiles[i] = null;
+        const slotEl = document.getElementById(`slot-${i}`);
+        slotEl.querySelector('input[type=file]').value = '';
+        slotEl.querySelector('.photo-slot-empty').style.display = 'flex';
+        slotEl.querySelector('.photo-slot-preview').style.display = 'none';
+    }
+    foodPhotoIndex = null;
+    foodPhotoFile = null;
+    document.getElementById("food-photo-preview").style.display = "none";
+    document.getElementById("step-done").style.display = "none";
+    document.getElementById("step-upload").style.display = "block";
+    document.getElementById("scan-btn").disabled = true;
+    document.getElementById("scan-btn").textContent = "Recept herkennen";
+    document.getElementById("scan-status").innerHTML = "";
+}
+</script>
+{% endblock %}

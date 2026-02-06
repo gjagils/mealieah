@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.name }} - Mealieah{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Recepten</a> &rsaquo; {{ recipe.name }}
+</div>
+
+<div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+    <h1 style="margin-bottom: 0;">{{ recipe.name }}</h1>
+    {% if mealie_external_url %}
+    <a href="{{ mealie_external_url }}/g/home/r/{{ recipe.slug }}" target="_blank" class="btn btn-sm" title="Bewerk in Mealie">
+        Bewerk in Mealie
+    </a>
+    {% endif %}
+</div>
+
+<table class="ingredient-table">
+    <thead>
+        <tr>
+            <th>Ingredient</th>
+            <th>Status</th>
+            <th>AH Product</th>
+            <th>Aantal</th>
+            <th>Acties</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for ing in ingredients %}
+        <tr id="row-{{ ing.reference_id }}" class="status-{{ ing.mapping.status if ing.mapping else 'unmapped' }}">
+            <td class="ing-display">{{ ing.display }}</td>
+            <td class="ing-status">
+                {% if ing.mapping and ing.mapping.status == 'mapped' %}
+                    <span class="badge badge-mapped">Gekoppeld</span>
+                {% elif ing.mapping and ing.mapping.status == 'skipped' %}
+                    <span class="badge badge-skipped">Overslaan</span>
+                {% else %}
+                    <span class="badge badge-unmapped">Niet gekoppeld</span>
+                {% endif %}
+            </td>
+            <td class="ing-product">
+                {% if ing.mapping and ing.mapping.status == 'mapped' %}
+                <div class="ah-product">
+                    {% if ing.mapping.ah_product_image_url %}
+                    <img src="{{ ing.mapping.ah_product_image_url }}" alt="" class="ah-thumb">
+                    {% endif %}
+                    <div>
+                        <strong>{{ ing.mapping.ah_product_name }}</strong><br>
+                        <small>{{ ing.mapping.ah_product_unit_size }} — {{ ing.mapping.ah_product_price }}</small>
+                    </div>
+                </div>
+                {% elif ing.mapping and ing.mapping.status == 'skipped' %}
+                <span class="muted">—</span>
+                {% else %}
+                <span class="muted">Zoek een AH product</span>
+                {% endif %}
+            </td>
+            <td class="ing-quantity">
+                {% if ing.mapping and ing.mapping.status == 'mapped' %}
+                <select class="qty-select" onchange="updateQuantity('{{ ing.reference_id }}', '{{ ing.display | replace("'", "\\'") }}', this.value, {{ ing.mapping.ah_product_id }}, '{{ ing.mapping.ah_product_name | replace("'", "\\'") }}', '{{ ing.mapping.ah_product_image_url }}', '{{ ing.mapping.ah_product_unit_size }}', '{{ ing.mapping.ah_product_price }}')">
+                    {% for n in range(1, 11) %}
+                    <option value="{{ n }}" {% if ing.mapping.ah_quantity == n %}selected{% endif %}>{{ n }}x</option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <span class="muted">—</span>
+                {% endif %}
+            </td>
+            <td class="ing-actions">
+                <button class="btn btn-sm" onclick="openSearch('{{ ing.reference_id }}', '{{ ing.display | replace("'", "\\'") }}')">
+                    Zoek AH
+                </button>
+                {% if not ing.mapping or ing.mapping.status != 'skipped' %}
+                <button class="btn btn-sm btn-muted" onclick="markSkipped('{{ ing.reference_id }}', '{{ ing.display | replace("'", "\\'") }}')">
+                    Overslaan
+                </button>
+                {% endif %}
+                {% if ing.mapping %}
+                <button class="btn btn-sm btn-danger" onclick="removeMapping('{{ ing.reference_id }}')">
+                    Verwijder
+                </button>
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Search modal -->
+<div id="search-modal" class="modal" style="display:none">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>AH Product zoeken</h2>
+            <button class="btn-close" onclick="closeSearch()">&times;</button>
+        </div>
+        <p>Ingredient: <strong id="search-ing-display"></strong></p>
+        <div class="search-bar">
+            <input type="text" id="search-input" placeholder="Zoek in AH assortiment..." autofocus>
+            <button class="btn" onclick="doSearch()">Zoek</button>
+        </div>
+        <div id="search-suggestions"></div>
+        <div id="search-results"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const recipeSlug = "{{ recipe.slug }}";
+const recipeName = "{{ recipe.name | replace('"', '\\"') }}";
+let currentRefId = "";
+let currentDisplay = "";
+
+function openSearch(refId, display) {
+    currentRefId = refId;
+    currentDisplay = display;
+    document.getElementById("search-ing-display").textContent = display;
+    document.getElementById("search-input").value = display.replace(/[\d.,]+\s*(g|kg|ml|l|el|tl|eetlepel|theelepel|stuks?|stuk)\s*/gi, '').trim();
+    document.getElementById("search-modal").style.display = "flex";
+    document.getElementById("search-input").focus();
+    loadSuggestions(display);
+    doSearch();
+}
+
+async function loadSuggestions(display) {
+    const container = document.getElementById("search-suggestions");
+    container.innerHTML = "";
+    try {
+        const resp = await fetch(`/api/mapping/suggestions?ingredient_display=${encodeURIComponent(display)}&recipe_slug=${encodeURIComponent(recipeSlug)}`);
+        const data = await resp.json();
+        if (!data.suggestions || !data.suggestions.length) return;
+
+        let html = '<div class="suggestions-header">Eerder gekoppeld in andere recepten:</div>';
+        for (const s of data.suggestions) {
+            if (s.status === "mapped") {
+                html += `
+                <div class="suggestion-item" onclick='applySuggestion(${JSON.stringify(s)})'>
+                    ${s.ah_product_image_url ? `<img src="${s.ah_product_image_url}" alt="" class="ah-thumb">` : ""}
+                    <div class="suggestion-info">
+                        <strong>${s.ah_product_name}</strong><br>
+                        <small>${s.ah_product_unit_size || ""} — &euro;${s.ah_product_price || ""}</small><br>
+                        <small class="muted">Uit: ${s.recipe_name || "ander recept"}</small>
+                    </div>
+                    <span class="badge badge-mapped">Overnemen</span>
+                </div>`;
+            } else {
+                html += `
+                <div class="suggestion-item suggestion-skip" onclick="markSkipped('${currentRefId}', '${currentDisplay.replace(/'/g, "\\'")}')">
+                    <div class="suggestion-info">
+                        <strong>Overslaan</strong><br>
+                        <small class="muted">Overgeslagen in: ${s.recipe_name || "ander recept"}</small>
+                    </div>
+                    <span class="badge badge-skipped">Overslaan</span>
+                </div>`;
+            }
+        }
+        container.innerHTML = html;
+    } catch (e) {
+        // Silently fail, suggestions are optional
+    }
+}
+
+async function applySuggestion(suggestion) {
+    const form = new FormData();
+    form.set("recipe_slug", recipeSlug);
+    form.set("recipe_name", recipeName);
+    form.set("ingredient_reference_id", currentRefId);
+    form.set("ingredient_display", currentDisplay);
+    form.set("status", "mapped");
+    form.set("ah_product_id", suggestion.ah_product_id);
+    form.set("ah_product_name", suggestion.ah_product_name);
+    form.set("ah_product_image_url", suggestion.ah_product_image_url || "");
+    form.set("ah_product_unit_size", suggestion.ah_product_unit_size || "");
+    form.set("ah_product_price", suggestion.ah_product_price || "");
+    form.set("ah_quantity", "1");
+    await fetch("/api/mapping", { method: "POST", body: form });
+    closeSearch();
+    location.reload();
+}
+
+function closeSearch() {
+    document.getElementById("search-modal").style.display = "none";
+    document.getElementById("search-results").innerHTML = "";
+    document.getElementById("search-suggestions").innerHTML = "";
+}
+
+async function doSearch() {
+    const q = document.getElementById("search-input").value.trim();
+    if (!q) return;
+    document.getElementById("search-results").innerHTML = "<p>Zoeken...</p>";
+    try {
+        const resp = await fetch(`/api/ah/search?q=${encodeURIComponent(q)}`);
+        const data = await resp.json();
+        if (data.error) {
+            document.getElementById("search-results").innerHTML = `<p class="error">${data.error}</p>`;
+            return;
+        }
+        let html = "";
+        for (const p of data.products) {
+            html += `
+            <div class="search-result" onclick='selectProduct(${JSON.stringify(p)})'>
+                ${p.image_url ? `<img src="${p.image_url}" alt="" class="ah-thumb">` : ""}
+                <div>
+                    <strong>${p.name}</strong><br>
+                    <small>${p.brand || ""} ${p.unit_size} — &euro;${p.price}</small>
+                </div>
+                <div class="search-result-qty">
+                    <label>Aantal:</label>
+                    <select class="qty-select" onclick="event.stopPropagation()" id="qty-${p.id}">
+                        <option value="1">1x</option>
+                        <option value="2">2x</option>
+                        <option value="3">3x</option>
+                        <option value="4">4x</option>
+                        <option value="5">5x</option>
+                    </select>
+                </div>
+            </div>`;
+        }
+        if (!data.products.length) html = "<p class='muted'>Geen resultaten</p>";
+        document.getElementById("search-results").innerHTML = html;
+    } catch (e) {
+        document.getElementById("search-results").innerHTML = `<p class="error">Fout: ${e.message}</p>`;
+    }
+}
+
+document.getElementById("search-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") doSearch();
+});
+
+async function selectProduct(product) {
+    const qtyEl = document.getElementById(`qty-${product.id}`);
+    const qty = qtyEl ? qtyEl.value : "1";
+    const form = new FormData();
+    form.set("recipe_slug", recipeSlug);
+    form.set("recipe_name", recipeName);
+    form.set("ingredient_reference_id", currentRefId);
+    form.set("ingredient_display", currentDisplay);
+    form.set("status", "mapped");
+    form.set("ah_product_id", product.id);
+    form.set("ah_product_name", product.name);
+    form.set("ah_product_image_url", product.image_url || "");
+    form.set("ah_product_unit_size", product.unit_size || "");
+    form.set("ah_product_price", product.price || "");
+    form.set("ah_quantity", qty);
+    await fetch("/api/mapping", { method: "POST", body: form });
+    closeSearch();
+    location.reload();
+}
+
+async function updateQuantity(refId, display, qty, productId, productName, imageUrl, unitSize, price) {
+    const form = new FormData();
+    form.set("recipe_slug", recipeSlug);
+    form.set("recipe_name", recipeName);
+    form.set("ingredient_reference_id", refId);
+    form.set("ingredient_display", display);
+    form.set("status", "mapped");
+    form.set("ah_product_id", productId);
+    form.set("ah_product_name", productName);
+    form.set("ah_product_image_url", imageUrl);
+    form.set("ah_product_unit_size", unitSize);
+    form.set("ah_product_price", price);
+    form.set("ah_quantity", qty);
+    await fetch("/api/mapping", { method: "POST", body: form });
+}
+
+async function markSkipped(refId, display) {
+    const form = new FormData();
+    form.set("recipe_slug", recipeSlug);
+    form.set("recipe_name", recipeName);
+    form.set("ingredient_reference_id", refId);
+    form.set("ingredient_display", display);
+    form.set("status", "skipped");
+    await fetch("/api/mapping", { method: "POST", body: form });
+    location.reload();
+}
+
+async function removeMapping(refId) {
+    const form = new FormData();
+    form.set("recipe_slug", recipeSlug);
+    form.set("ingredient_reference_id", refId);
+    await fetch("/api/mapping/delete", { method: "POST", body: form });
+    location.reload();
+}
+</script>
+{% endblock %}
