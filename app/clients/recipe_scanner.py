@@ -1,10 +1,43 @@
 import base64
+import io
 import json
 
 import anthropic
+from PIL import Image, ImageOps
 
 from app.config import settings
 from app.logging_config import logger
+
+MAX_IMAGE_BYTES = 4_800_000  # Claude API limit is 5MB, keep margin
+
+
+def _resize_for_api(image_data: bytes, media_type: str) -> tuple[bytes, str]:
+    """Resize and compress image to fit within Claude's 5MB limit."""
+    if len(image_data) <= MAX_IMAGE_BYTES:
+        return image_data, media_type
+
+    img = Image.open(io.BytesIO(image_data))
+    img = ImageOps.exif_transpose(img)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+
+    # Progressively reduce size until under limit
+    quality = 85
+    max_dim = 2048
+    while True:
+        img_resized = img.copy()
+        img_resized.thumbnail((max_dim, max_dim), Image.LANCZOS)
+        buf = io.BytesIO()
+        img_resized.save(buf, format="JPEG", quality=quality)
+        result = buf.getvalue()
+        if len(result) <= MAX_IMAGE_BYTES:
+            logger.info("Resized image: %d -> %d bytes (max_dim=%d, q=%d)",
+                        len(image_data), len(result), max_dim, quality)
+            return result, "image/jpeg"
+        if quality > 50:
+            quality -= 10
+        else:
+            max_dim = int(max_dim * 0.75)
 
 SYSTEM_PROMPT = """Je bent een expert in het lezen van recepten uit foto's.
 Analyseer alle foto's en extraheer het recept in een gestructureerd JSON formaat.
@@ -55,9 +88,10 @@ async def scan_recipe_images(images: list[tuple[bytes, str]]) -> dict:
 
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
-    # Build content blocks: all images + one text prompt
+    # Build content blocks: all images (resized if needed) + one text prompt
     content = []
     for i, (image_data, media_type) in enumerate(images):
+        image_data, media_type = _resize_for_api(image_data, media_type)
         image_b64 = base64.b64encode(image_data).decode("utf-8")
         content.append({
             "type": "image",
