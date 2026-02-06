@@ -561,37 +561,40 @@ async def save_scanned_recipe(
         slug = created if isinstance(created, str) else created.get("slug", created)
         logger.info("Created recipe in Mealie: %s", slug)
 
-        # Step 2: Fetch fresh recipe, update fields, and save back
-        full_recipe = await mealie_client.get_recipe(slug)
-
-        ingredients = []
-        for ing in recipe_data.get("ingredients", []):
-            ingredients.append({
+        # Step 2: Update with minimal fields (Mealie v3 accepts strings as ingredients)
+        ingredients = [
+            {
                 "referenceId": str(uuid.uuid4()),
                 "note": ing,
-                "disableAmount": True,
-                "quantity": 0,
+                "quantity": None,
+                "unit": None,
+                "food": None,
                 "originalText": ing,
-            })
+                "display": ing,
+            }
+            for ing in recipe_data.get("ingredients", [])
+        ]
 
-        instructions = []
-        for step in recipe_data.get("instructions", []):
-            instructions.append({
+        instructions = [
+            {
                 "id": str(uuid.uuid4()),
+                "title": "",
                 "text": step,
-            })
+                "ingredientReferences": [],
+            }
+            for step in recipe_data.get("instructions", [])
+        ]
 
-        full_recipe["description"] = recipe_data.get("description", "")
-        full_recipe["recipeYield"] = recipe_data.get("recipe_yield", "")
-        full_recipe["totalTime"] = recipe_data.get("total_time", "")
-        full_recipe["recipeIngredient"] = ingredients
-        full_recipe["recipeInstructions"] = instructions
+        update_data = {
+            "name": name,
+            "description": recipe_data.get("description", ""),
+            "recipeYield": recipe_data.get("recipe_yield", ""),
+            "totalTime": recipe_data.get("total_time", ""),
+            "recipeIngredient": ingredients,
+            "recipeInstructions": instructions,
+        }
 
-        # Remove potentially problematic computed fields
-        for key in ["extras", "comments", "assets", "settings"]:
-            full_recipe.pop(key, None)
-
-        await mealie_client.update_recipe(slug, full_recipe)
+        await mealie_client.update_recipe(slug, update_data)
         logger.info("Updated recipe %s with ingredients and instructions", slug)
 
         # Step 3: Upload food photo if provided (with EXIF rotation fix)
