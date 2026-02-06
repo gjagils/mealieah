@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from app.clients.ah import AH_AUTH_URL, AH_CART_URL, AH_REFRESH_URL, AH_SEARCH_URL, AHClient
+from app.clients.ah import AH_AUTH_URL, AH_CART_URL, AH_LOGIN_URL, AH_REFRESH_URL, AH_SEARCH_URL, AHClient
 
 
 @pytest.fixture
@@ -185,3 +185,32 @@ async def test_cart_auto_refresh_on_401(ah):
     result = await ah.add_to_cart([{"product_id": 1, "quantity": 1}])
     assert result == {"success": True}
     assert ah._user_token == "fresh-access"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_login_success(ah):
+    respx.post(AH_LOGIN_URL).mock(
+        return_value=httpx.Response(200, json={
+            "access_token": "login-access-tok",
+            "refresh_token": "login-refresh-tok",
+            "expires_in": 604798,
+        })
+    )
+
+    result = await ah.login("user@example.com", "password123")
+    assert result["access_token"] == "login-access-tok"
+    assert result["refresh_token"] == "login-refresh-tok"
+    assert ah._user_token == "login-access-tok"
+    assert ah._user_refresh_token == "login-refresh-tok"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_login_invalid_credentials(ah):
+    respx.post(AH_LOGIN_URL).mock(
+        return_value=httpx.Response(401, json={"error": "invalid_grant"})
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await ah.login("user@example.com", "wrongpassword")

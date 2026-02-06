@@ -47,29 +47,26 @@
     </form>
 </section>
 
-<!-- AH Token -->
+<!-- AH Login -->
 <section class="settings-section">
     <h2>Albert Heijn koppeling</h2>
     <p class="muted">
-        Voer eenmalig een refresh token in. De app refresht daarna automatisch — je hoeft dit niet te herhalen.
+        Log in met je AH account. De app bewaart je tokens en refresht ze automatisch.
     </p>
-    <details class="ah-instructions">
-        <summary>Hoe krijg ik een refresh token?</summary>
-        <ol>
-            <li>Open <code>ah.nl</code> en log in op je account</li>
-            <li>Open Developer Tools (F12) &rarr; tabblad <strong>Network</strong></li>
-            <li>Filter op <code>token</code></li>
-            <li>Klik op een request naar <code>mobile-auth</code></li>
-            <li>In de <strong>Response</strong> vind je <code>refresh_token</code></li>
-            <li>Kopieer die waarde en plak hieronder</li>
-        </ol>
-    </details>
-    <form method="post" action="/settings/ah-token" style="margin-top: 0.75rem">
-        <div class="form-group">
-            <input type="password" name="ah_refresh_token" placeholder="Plak je AH refresh token hier"
-                   class="form-input" autocomplete="off">
-            <button type="submit" class="btn">Opslaan</button>
+    <form method="post" action="/settings/ah-login" id="ah-login-form" style="margin-top: 0.75rem">
+        <div class="form-group" style="flex-direction: column; gap: 0.5rem;">
+            <input type="email" name="username" placeholder="E-mailadres" required
+                   class="form-input" autocomplete="email">
+            <input type="password" name="password" placeholder="Wachtwoord" required
+                   class="form-input" autocomplete="current-password">
+            <button type="submit" class="btn" id="ah-login-btn">Inloggen</button>
         </div>
+        {% if ah_login_error %}
+        <p class="error-text" style="color: #c0392b; margin-top: 0.5rem;">{{ ah_login_error }}</p>
+        {% endif %}
+        {% if ah_login_success %}
+        <p style="color: #27ae60; margin-top: 0.5rem;">Succesvol ingelogd!</p>
+        {% endif %}
     </form>
 </section>
 {% endblock %}

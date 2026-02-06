@@ -5,6 +5,7 @@ import httpx
 from app.logging_config import logger
 
 AH_AUTH_URL = "https://api.ah.nl/mobile-auth/v1/auth/token/anonymous"
+AH_LOGIN_URL = "https://api.ah.nl/mobile-auth/v1/auth/token"
 AH_REFRESH_URL = "https://api.ah.nl/mobile-auth/v1/auth/token/refresh"
 AH_SEARCH_URL = "https://api.ah.nl/mobile-services/product/search/v2"
 AH_CART_URL = "https://api.ah.nl/mobile-services/shoppinglist/v2/items"
@@ -38,6 +39,26 @@ class AHClient:
             self._anonymous_token = data["access_token"]
             logger.info("Obtained anonymous AH token")
             return self._anonymous_token
+
+    async def login(self, username: str, password: str) -> dict:
+        """Login with AH credentials, returns tokens dict."""
+        async with httpx.AsyncClient() as client:
+            logger.info("Logging in to AH with username: %s", username)
+            resp = await client.post(
+                AH_LOGIN_URL,
+                headers=DEFAULT_HEADERS,
+                json={
+                    "clientId": "appie",
+                    "username": username,
+                    "password": password,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            self._user_token = data["access_token"]
+            self._user_refresh_token = data["refresh_token"]
+            logger.info("AH login successful")
+            return data
 
     def set_user_tokens(
         self,

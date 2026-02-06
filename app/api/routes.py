@@ -330,20 +330,7 @@ async def fill_cart(db: Session = Depends(get_db)):
 
 @router.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request, db: Session = Depends(get_db)):
-    verbose = _get_setting(db, "verbose_logging") == "true"
-    ah_token = _get_setting(db, "ah_user_token")
-    ah_refresh = _get_setting(db, "ah_refresh_token")
-    mealie_ok = await mealie_client.health_check()
-    return templates.TemplateResponse(
-        "settings.html",
-        {
-            "request": request,
-            "verbose_logging": verbose,
-            "ah_token_set": bool(ah_token),
-            "ah_refresh_set": bool(ah_refresh),
-            "mealie_ok": mealie_ok,
-        },
-    )
+    return await _render_settings(request, db)
 
 
 @router.post("/settings/logging")
@@ -358,32 +345,55 @@ async def toggle_logging(
     return RedirectResponse("/settings", status_code=303)
 
 
-@router.post("/settings/ah-token")
-async def save_ah_token(
-    ah_refresh_token: str = Form(""),
+@router.post("/settings/ah-login")
+async def ah_login(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
     db: Session = Depends(get_db),
 ):
-    refresh_token = ah_refresh_token.strip()
-    if not refresh_token:
-        return RedirectResponse("/settings", status_code=303)
+    username = username.strip()
+    password = password.strip()
+    if not username or not password:
+        return await _render_settings(request, db, ah_login_error="Vul e-mail en wachtwoord in.")
 
-    # Immediately use the refresh token to get a fresh access token
-    from app.clients.ah import AH_REFRESH_URL, DEFAULT_HEADERS
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                AH_REFRESH_URL,
-                headers=DEFAULT_HEADERS,
-                json={"refreshToken": refresh_token, "clientId": "appie"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            _set_setting(db, "ah_user_token", data["access_token"])
-            _set_setting(db, "ah_refresh_token", data["refresh_token"])
-            logger.info("AH tokens saved via refresh token")
+        data = await ah_client.login(username, password)
+        _set_setting(db, "ah_user_token", data["access_token"])
+        _set_setting(db, "ah_refresh_token", data["refresh_token"])
+        logger.info("AH login successful for %s", username)
+        return await _render_settings(request, db, ah_login_success=True)
+    except httpx.HTTPStatusError as e:
+        logger.error("AH login failed (HTTP %s): %s", e.response.status_code, e)
+        if e.response.status_code == 401:
+            msg = "Onjuist e-mailadres of wachtwoord."
+        else:
+            msg = f"AH login mislukt (HTTP {e.response.status_code})."
+        return await _render_settings(request, db, ah_login_error=msg)
     except Exception as e:
-        logger.error("Failed to validate refresh token: %s", e)
-        _set_setting(db, "ah_refresh_token", refresh_token)
-        logger.info("Stored refresh token as-is (validation failed: %s)", e)
+        logger.error("AH login failed: %s", e)
+        return await _render_settings(request, db, ah_login_error=f"Inloggen mislukt: {e}")
 
-    return RedirectResponse("/settings", status_code=303)
+
+async def _render_settings(
+    request: Request,
+    db: Session,
+    ah_login_error: str = "",
+    ah_login_success: bool = False,
+):
+    verbose = _get_setting(db, "verbose_logging") == "true"
+    ah_token = _get_setting(db, "ah_user_token")
+    ah_refresh = _get_setting(db, "ah_refresh_token")
+    mealie_ok = await mealie_client.health_check()
+    return templates.TemplateResponse(
+        "settings.html",
+        {
+            "request": request,
+            "verbose_logging": verbose,
+            "ah_token_set": bool(ah_token),
+            "ah_refresh_set": bool(ah_refresh),
+            "mealie_ok": mealie_ok,
+            "ah_login_error": ah_login_error,
+            "ah_login_success": ah_login_success,
+        },
+    )
