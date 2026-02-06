@@ -9,6 +9,7 @@ AH_CART_URL = "https://api.ah.nl/mobile-services/shoppinglist/v2/items"
 DEFAULT_HEADERS = {
     "User-Agent": "Appie/8.22.3",
     "Content-Type": "application/json",
+    "x-application": "AHWEBSHOP",
 }
 
 
