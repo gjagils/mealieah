@@ -9,8 +9,8 @@
 <div class="recipe-grid">
     {% for recipe in recipes %}
     <a href="/recipe/{{ recipe.slug }}" class="recipe-card">
-        {% if recipe.image %}
-        <img src="{{ recipe.image }}" alt="{{ recipe.name }}" loading="lazy">
+        {% if recipe.id %}
+        <img src="/proxy/recipe-image/{{ recipe.id }}" alt="{{ recipe.name }}" loading="lazy">
         {% else %}
         <div class="recipe-card-placeholder"></div>
         {% endif %}

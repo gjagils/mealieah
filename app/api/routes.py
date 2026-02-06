@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -98,6 +98,24 @@ async def recipe_detail(request: Request, slug: str, db: Session = Depends(get_d
             "ingredients": enriched,
         },
     )
+
+
+# ── Mealie Image Proxy ─────────────────────────────────────────────────
+
+
+@router.get("/proxy/recipe-image/{recipe_id}")
+async def proxy_recipe_image(recipe_id: str):
+    import httpx
+    url = f"{mealie_client.base_url}/api/media/recipes/{recipe_id}/images/min-original.webp"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers=mealie_client._headers, timeout=10)
+        if resp.status_code != 200:
+            return Response(status_code=404)
+        return Response(
+            content=resp.content,
+            media_type=resp.headers.get("content-type", "image/webp"),
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
 
 # ── AH Product Search (AJAX) ──────────────────────────────────────────
