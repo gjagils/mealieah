@@ -49,6 +49,30 @@ class MealieClient:
             data = resp.json()
             return data.get("items", data) if isinstance(data, dict) else data
 
+    async def create_recipe(self, name: str) -> dict:
+        """Create a new recipe in Mealie (returns the created recipe with slug)."""
+        async with httpx.AsyncClient() as client:
+            logger.info("Creating recipe in Mealie: %s", name)
+            resp = await client.post(
+                f"{self.base_url}/api/recipes",
+                headers=self._headers,
+                json={"name": name},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def update_recipe(self, slug: str, data: dict) -> dict:
+        """Update recipe fields in Mealie."""
+        async with httpx.AsyncClient() as client:
+            logger.info("Updating recipe in Mealie: %s", slug)
+            resp = await client.patch(
+                f"{self.base_url}/api/recipes/{slug}",
+                headers=self._headers,
+                json=data,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def health_check(self) -> bool:
         try:
             async with httpx.AsyncClient() as client:

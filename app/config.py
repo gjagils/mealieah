@@ -13,6 +13,7 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     mealie_external_url: str = ""
+    anthropic_api_key: str = ""
 
     @property
     def database_url(self) -> str:

@@ -1,8 +1,8 @@
 from datetime import date, timedelta
 
 import httpx
-from fastapi import APIRouter, Depends, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -466,6 +466,104 @@ async def fill_cart(db: Session = Depends(get_db)):
         return {"ok": False, "error": str(e)}
 
     return {"ok": True, "items_added": len(cart)}
+
+
+# ── Recipe Scanner ────────────────────────────────────────────────────
+
+
+@router.get("/scan", response_class=HTMLResponse)
+async def scan_page(request: Request):
+    has_key = bool(settings.anthropic_api_key)
+    return templates.TemplateResponse(
+        "scan.html",
+        {
+            "request": request,
+            "has_api_key": has_key,
+            "mealie_external_url": settings.mealie_external_url,
+        },
+    )
+
+
+@router.post("/api/scan")
+async def scan_recipe(image: UploadFile = File(...)):
+    """Process a recipe photo with Claude Vision."""
+    from app.clients.recipe_scanner import scan_recipe_image
+
+    if not settings.anthropic_api_key:
+        return JSONResponse(
+            {"ok": False, "error": "ANTHROPIC_API_KEY is niet ingesteld."},
+            status_code=400,
+        )
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if image.content_type not in allowed_types:
+        return JSONResponse(
+            {"ok": False, "error": f"Ongeldig bestandstype: {image.content_type}"},
+            status_code=400,
+        )
+
+    image_data = await image.read()
+    if len(image_data) > 20 * 1024 * 1024:  # 20MB limit
+        return JSONResponse(
+            {"ok": False, "error": "Afbeelding is te groot (max 20MB)."},
+            status_code=400,
+        )
+
+    try:
+        recipe = await scan_recipe_image(image_data, image.content_type)
+        return {"ok": True, "recipe": recipe}
+    except Exception as e:
+        logger.error("Recipe scan failed: %s", e)
+        return JSONResponse(
+            {"ok": False, "error": str(e)}, status_code=500
+        )
+
+
+@router.post("/api/scan/save")
+async def save_scanned_recipe(request: Request):
+    """Save a scanned recipe to Mealie."""
+    body = await request.json()
+    recipe_data = body.get("recipe", {})
+    name = recipe_data.get("name", "").strip()
+
+    if not name:
+        return JSONResponse(
+            {"ok": False, "error": "Receptnaam is verplicht."}, status_code=400
+        )
+
+    try:
+        # Step 1: Create recipe in Mealie (returns slug)
+        created = await mealie_client.create_recipe(name)
+        slug = created if isinstance(created, str) else created.get("slug", created)
+        logger.info("Created recipe in Mealie: %s", slug)
+
+        # Step 2: Update with full recipe data
+        ingredients = [
+            {"note": ing, "display": ing}
+            for ing in recipe_data.get("ingredients", [])
+        ]
+        instructions = [
+            {"text": step}
+            for step in recipe_data.get("instructions", [])
+        ]
+
+        update_data = {
+            "description": recipe_data.get("description", ""),
+            "recipeYield": recipe_data.get("recipe_yield", ""),
+            "totalTime": recipe_data.get("total_time", ""),
+            "recipeIngredient": ingredients,
+            "recipeInstructions": instructions,
+        }
+
+        await mealie_client.update_recipe(slug, update_data)
+        logger.info("Updated recipe %s with ingredients and instructions", slug)
+
+        return {"ok": True, "slug": slug}
+    except Exception as e:
+        logger.error("Failed to save recipe to Mealie: %s", e)
+        return JSONResponse(
+            {"ok": False, "error": str(e)}, status_code=500
+        )
 
 
 # ── Settings ──────────────────────────────────────────────────────────
