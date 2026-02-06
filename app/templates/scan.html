@@ -2,7 +2,7 @@
 {% block title %}Recept scannen - Mealieah{% endblock %}
 {% block content %}
 <h1>Recept scannen</h1>
-<p class="muted">Maak een foto van een recept uit een kookboek en sla het op in Mealie.</p>
+<p class="muted">Maak foto's van een recept (bijv. voor- en achterkant van een receptenkaart) en sla het op in Mealie.</p>
 
 {% if not has_api_key %}
 <div class="warning-box">
@@ -12,20 +12,55 @@
 
 <!-- Step 1: Upload -->
 <section class="scan-section" id="step-upload">
-    <h2>1. Foto uploaden</h2>
-    <div class="upload-area" id="upload-area">
-        <input type="file" id="file-input" accept="image/*" capture="environment" style="display:none">
-        <div class="upload-placeholder" id="upload-placeholder" onclick="document.getElementById('file-input').click()">
-            <div class="upload-icon">&#128247;</div>
-            <p>Klik om een foto te maken of te kiezen</p>
-            <small class="muted">JPG, PNG of WebP (max 20MB)</small>
+    <h2>1. Foto's uploaden</h2>
+    <div class="photo-grid" id="photo-grid">
+        <div class="photo-slot" id="slot-0" onclick="addPhoto(0)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 0)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">&#128247;</div>
+                <small>Foto 1</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 0)">&#10005;</button>
+            </div>
         </div>
-        <div id="preview-container" style="display:none">
-            <img id="preview-img" class="scan-preview">
-            <button class="btn btn-sm" onclick="clearImage()" style="margin-top: 0.5rem;">Andere foto</button>
+        <div class="photo-slot" id="slot-1" onclick="addPhoto(1)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 1)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">+</div>
+                <small>Foto 2</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 1)">&#10005;</button>
+            </div>
+        </div>
+        <div class="photo-slot" id="slot-2" onclick="addPhoto(2)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 2)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">+</div>
+                <small>Foto 3</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 2)">&#10005;</button>
+            </div>
+        </div>
+        <div class="photo-slot" id="slot-3" onclick="addPhoto(3)">
+            <input type="file" accept="image/*" capture="environment" style="display:none" onchange="onFileSelected(this, 3)">
+            <div class="photo-slot-empty">
+                <div class="upload-icon">+</div>
+                <small>Foto 4</small>
+            </div>
+            <div class="photo-slot-preview" style="display:none">
+                <img>
+                <button class="btn btn-sm photo-remove" onclick="removePhoto(event, 3)">&#10005;</button>
+            </div>
         </div>
     </div>
-    <button class="btn btn-primary" id="scan-btn" onclick="scanImage()" disabled style="margin-top: 1rem;">
+    <p class="muted" style="margin-top: 0.5rem;">Upload 1-4 foto's. Bij meerdere foto's (bijv. voor- en achterkant) worden ze gecombineerd tot 1 recept. De foto van het gerecht wordt als afbeelding in Mealie gezet.</p>
+    <button class="btn btn-primary" id="scan-btn" onclick="scanImages()" disabled style="margin-top: 1rem;">
         Recept herkennen
     </button>
     <div id="scan-status"></div>
@@ -34,6 +69,10 @@
 <!-- Step 2: Preview & Edit -->
 <section class="scan-section" id="step-preview" style="display:none">
     <h2>2. Controleer het recept</h2>
+    <div id="food-photo-preview" style="display:none; margin-bottom: 1rem;">
+        <img id="food-photo-img" style="max-height: 200px; border-radius: 8px;">
+        <p class="muted" style="margin-top: 0.25rem;">Deze foto wordt als receptafbeelding gebruikt</p>
+    </div>
     <div class="scan-form">
         <label>Naam</label>
         <input type="text" id="recipe-name" class="form-input">
@@ -53,10 +92,10 @@
         </div>
 
         <label>Ingredienten</label>
-        <textarea id="recipe-ingredients" class="form-textarea" rows="8" placeholder="Eén ingredient per regel"></textarea>
+        <textarea id="recipe-ingredients" class="form-textarea" rows="8" placeholder="Een ingredient per regel"></textarea>
 
         <label>Bereidingswijze</label>
-        <textarea id="recipe-instructions" class="form-textarea" rows="8" placeholder="Eén stap per regel"></textarea>
+        <textarea id="recipe-instructions" class="form-textarea" rows="8" placeholder="Een stap per regel"></textarea>
     </div>
     <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
         <button class="btn btn-primary" id="save-btn" onclick="saveRecipe()">
@@ -84,42 +123,63 @@
 
 {% block scripts %}
 <script>
-const melialieExternalUrl = "{{ mealie_external_url | default('', true) }}";
-let selectedFile = null;
-let scannedRecipe = null;
+const mealieExternalUrl = "{{ mealie_external_url | default('', true) }}";
+const selectedFiles = [null, null, null, null];
+let foodPhotoIndex = null;
+let foodPhotoFile = null;
 
-document.getElementById("file-input").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    selectedFile = file;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        document.getElementById("preview-img").src = ev.target.result;
-        document.getElementById("preview-container").style.display = "block";
-        document.getElementById("upload-placeholder").style.display = "none";
-        document.getElementById("scan-btn").disabled = false;
-    };
-    reader.readAsDataURL(file);
-});
-
-function clearImage() {
-    selectedFile = null;
-    document.getElementById("file-input").value = "";
-    document.getElementById("preview-container").style.display = "none";
-    document.getElementById("upload-placeholder").style.display = "flex";
-    document.getElementById("scan-btn").disabled = true;
+function addPhoto(slot) {
+    const el = document.querySelector(`#slot-${slot} input[type=file]`);
+    if (el && !selectedFiles[slot]) el.click();
 }
 
-async function scanImage() {
-    if (!selectedFile) return;
+function onFileSelected(input, slot) {
+    const file = input.files[0];
+    if (!file) return;
+    selectedFiles[slot] = file;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const slotEl = document.getElementById(`slot-${slot}`);
+        slotEl.querySelector('.photo-slot-empty').style.display = 'none';
+        const preview = slotEl.querySelector('.photo-slot-preview');
+        preview.style.display = 'block';
+        preview.querySelector('img').src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+    updateScanButton();
+}
+
+function removePhoto(event, slot) {
+    event.stopPropagation();
+    selectedFiles[slot] = null;
+    const slotEl = document.getElementById(`slot-${slot}`);
+    slotEl.querySelector('input[type=file]').value = '';
+    slotEl.querySelector('.photo-slot-empty').style.display = 'flex';
+    slotEl.querySelector('.photo-slot-preview').style.display = 'none';
+    updateScanButton();
+}
+
+function updateScanButton() {
+    const hasAny = selectedFiles.some(f => f !== null);
+    document.getElementById("scan-btn").disabled = !hasAny;
+}
+
+async function scanImages() {
+    const files = selectedFiles.filter(f => f !== null);
+    if (!files.length) return;
+
     const btn = document.getElementById("scan-btn");
     const status = document.getElementById("scan-status");
     btn.disabled = true;
     btn.textContent = "Bezig met herkennen...";
-    status.innerHTML = '<p class="muted">Dit kan 5-10 seconden duren...</p>';
+    const n = files.length;
+    status.innerHTML = `<p class="muted">${n} foto${n > 1 ? "'s" : ""} worden geanalyseerd, dit kan 5-15 seconden duren...</p>`;
 
     const formData = new FormData();
-    formData.append("image", selectedFile);
+    for (const f of files) {
+        formData.append("images", f);
+    }
 
     try {
         const resp = await fetch("/api/scan", { method: "POST", body: formData });
@@ -130,7 +190,18 @@ async function scanImage() {
             btn.textContent = "Recept herkennen";
             return;
         }
-        scannedRecipe = data.recipe;
+
+        // Determine which photo to use as food photo
+        const idx = data.recipe.food_photo_index;
+        if (idx !== null && idx !== undefined && idx >= 0 && idx < files.length) {
+            foodPhotoIndex = idx;
+            foodPhotoFile = files[idx];
+        } else {
+            // Default to first photo
+            foodPhotoIndex = 0;
+            foodPhotoFile = files[0];
+        }
+
         showPreview(data.recipe);
     } catch (e) {
         status.innerHTML = `<p class="error">Fout: ${e.message}</p>`;
@@ -147,6 +218,16 @@ function showPreview(recipe) {
     document.getElementById("recipe-ingredients").value = (recipe.ingredients || []).join("\n");
     document.getElementById("recipe-instructions").value = (recipe.instructions || []).join("\n");
 
+    // Show food photo preview
+    if (foodPhotoFile) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            document.getElementById("food-photo-img").src = ev.target.result;
+            document.getElementById("food-photo-preview").style.display = "block";
+        };
+        reader.readAsDataURL(foodPhotoFile);
+    }
+
     document.getElementById("step-upload").style.display = "none";
     document.getElementById("step-preview").style.display = "block";
 }
@@ -154,6 +235,7 @@ function showPreview(recipe) {
 function backToUpload() {
     document.getElementById("step-preview").style.display = "none";
     document.getElementById("step-upload").style.display = "block";
+    document.getElementById("food-photo-preview").style.display = "none";
     document.getElementById("scan-btn").disabled = false;
     document.getElementById("scan-btn").textContent = "Recept herkennen";
     document.getElementById("scan-status").innerHTML = "";
@@ -182,11 +264,16 @@ async function saveRecipe() {
         return;
     }
 
+    const formData = new FormData();
+    formData.append("recipe_json", JSON.stringify(recipe));
+    if (foodPhotoFile) {
+        formData.append("food_photo", foodPhotoFile);
+    }
+
     try {
         const resp = await fetch("/api/scan/save", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ recipe }),
+            body: formData,
         });
         const data = await resp.json();
         if (!data.ok) {
@@ -196,11 +283,10 @@ async function saveRecipe() {
             return;
         }
 
-        // Show success
         document.getElementById("view-recipe-link").href = `/recipe/${data.slug}`;
         const mealieLink = document.getElementById("view-mealie-link");
-        if (mealieLink && melialieExternalUrl) {
-            mealieLink.href = `${melialieExternalUrl}/g/home/r/${data.slug}`;
+        if (mealieLink && mealieExternalUrl) {
+            mealieLink.href = `${mealieExternalUrl}/g/home/r/${data.slug}`;
         }
         document.getElementById("step-preview").style.display = "none";
         document.getElementById("step-done").style.display = "block";
@@ -212,9 +298,19 @@ async function saveRecipe() {
 }
 
 function resetScan() {
-    clearImage();
+    for (let i = 0; i < 4; i++) {
+        selectedFiles[i] = null;
+        const slotEl = document.getElementById(`slot-${i}`);
+        slotEl.querySelector('input[type=file]').value = '';
+        slotEl.querySelector('.photo-slot-empty').style.display = 'flex';
+        slotEl.querySelector('.photo-slot-preview').style.display = 'none';
+    }
+    foodPhotoIndex = null;
+    foodPhotoFile = null;
+    document.getElementById("food-photo-preview").style.display = "none";
     document.getElementById("step-done").style.display = "none";
     document.getElementById("step-upload").style.display = "block";
+    document.getElementById("scan-btn").disabled = true;
     document.getElementById("scan-btn").textContent = "Recept herkennen";
     document.getElementById("scan-status").innerHTML = "";
 }

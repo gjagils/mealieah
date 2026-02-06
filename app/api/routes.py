@@ -485,9 +485,9 @@ async def scan_page(request: Request):
 
 
 @router.post("/api/scan")
-async def scan_recipe(image: UploadFile = File(...)):
-    """Process a recipe photo with Claude Vision."""
-    from app.clients.recipe_scanner import scan_recipe_image
+async def scan_recipe(images: list[UploadFile] = File(...)):
+    """Process one or more recipe photos with Claude Vision."""
+    from app.clients.recipe_scanner import scan_recipe_images
 
     if not settings.anthropic_api_key:
         return JSONResponse(
@@ -496,22 +496,25 @@ async def scan_recipe(image: UploadFile = File(...)):
         )
 
     allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-    if image.content_type not in allowed_types:
-        return JSONResponse(
-            {"ok": False, "error": f"Ongeldig bestandstype: {image.content_type}"},
-            status_code=400,
-        )
+    image_list: list[tuple[bytes, str]] = []
 
-    image_data = await image.read()
-    if len(image_data) > 20 * 1024 * 1024:  # 20MB limit
-        return JSONResponse(
-            {"ok": False, "error": "Afbeelding is te groot (max 20MB)."},
-            status_code=400,
-        )
+    for img in images:
+        if img.content_type not in allowed_types:
+            return JSONResponse(
+                {"ok": False, "error": f"Ongeldig bestandstype: {img.content_type}"},
+                status_code=400,
+            )
+        data = await img.read()
+        if len(data) > 20 * 1024 * 1024:
+            return JSONResponse(
+                {"ok": False, "error": "Afbeelding is te groot (max 20MB)."},
+                status_code=400,
+            )
+        image_list.append((data, img.content_type))
 
     try:
-        recipe = await scan_recipe_image(image_data, image.content_type)
-        return {"ok": True, "recipe": recipe}
+        recipe = await scan_recipe_images(image_list)
+        return {"ok": True, "recipe": recipe, "image_count": len(image_list)}
     except Exception as e:
         logger.error("Recipe scan failed: %s", e)
         return JSONResponse(
@@ -520,10 +523,14 @@ async def scan_recipe(image: UploadFile = File(...)):
 
 
 @router.post("/api/scan/save")
-async def save_scanned_recipe(request: Request):
-    """Save a scanned recipe to Mealie."""
-    body = await request.json()
-    recipe_data = body.get("recipe", {})
+async def save_scanned_recipe(
+    recipe_json: str = Form(...),
+    food_photo: UploadFile | None = File(None),
+):
+    """Save a scanned recipe to Mealie, optionally with a food photo."""
+    import json as json_mod
+
+    recipe_data = json_mod.loads(recipe_json)
     name = recipe_data.get("name", "").strip()
 
     if not name:
@@ -572,6 +579,17 @@ async def save_scanned_recipe(request: Request):
 
         await mealie_client.update_recipe(slug, full_recipe)
         logger.info("Updated recipe %s with ingredients and instructions", slug)
+
+        # Step 4: Upload food photo if provided
+        if food_photo and food_photo.size:
+            photo_data = await food_photo.read()
+            try:
+                await mealie_client.upload_recipe_image(
+                    slug, photo_data, food_photo.content_type
+                )
+                logger.info("Uploaded food photo for %s", slug)
+            except Exception as img_err:
+                logger.warning("Failed to upload recipe image: %s", img_err)
 
         return {"ok": True, "slug": slug}
     except Exception as e:

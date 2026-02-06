@@ -73,6 +73,25 @@ class MealieClient:
             resp.raise_for_status()
             return resp.json()
 
+    async def upload_recipe_image(self, slug: str, image_data: bytes, media_type: str) -> bool:
+        """Upload an image as the recipe's cover photo."""
+        ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        ext = ext_map.get(media_type, "jpg")
+        async with httpx.AsyncClient() as client:
+            logger.info("Uploading recipe image for %s (%d bytes)", slug, len(image_data))
+            headers = {}
+            if self.api_token:
+                headers["Authorization"] = f"Bearer {self.api_token}"
+            resp = await client.put(
+                f"{self.base_url}/api/recipes/{slug}/image",
+                headers=headers,
+                files={"image": (f"recipe.{ext}", image_data, media_type)},
+                data={"extension": ext},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return True
+
     async def health_check(self) -> bool:
         try:
             async with httpx.AsyncClient() as client:
