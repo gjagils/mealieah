@@ -65,11 +65,21 @@ class MealieClient:
         """Update recipe fields in Mealie."""
         async with httpx.AsyncClient() as client:
             logger.info("Updating recipe in Mealie: %s", slug)
+            # Try PATCH first, fall back to PUT on 500
             resp = await client.patch(
                 f"{self.base_url}/api/recipes/{slug}",
                 headers=self._headers,
                 json=data,
+                timeout=30,
             )
+            if resp.status_code == 500:
+                logger.warning("PATCH returned 500, trying PUT")
+                resp = await client.put(
+                    f"{self.base_url}/api/recipes/{slug}",
+                    headers=self._headers,
+                    json=data,
+                    timeout=30,
+                )
             resp.raise_for_status()
             return resp.json()
 

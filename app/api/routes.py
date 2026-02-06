@@ -522,6 +522,21 @@ async def scan_recipe(images: list[UploadFile] = File(...)):
         )
 
 
+def _fix_image_rotation(image_data: bytes) -> tuple[bytes, str]:
+    """Auto-rotate image based on EXIF orientation and return as JPEG."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    img = Image.open(io.BytesIO(image_data))
+    img = ImageOps.exif_transpose(img)
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue(), "image/jpeg"
+
+
 @router.post("/api/scan/save")
 async def save_scanned_recipe(
     recipe_json: str = Form(...),
@@ -544,49 +559,44 @@ async def save_scanned_recipe(
         slug = created if isinstance(created, str) else created.get("slug", created)
         logger.info("Created recipe in Mealie: %s", slug)
 
-        # Step 2: Fetch the created recipe to get its full structure
-        full_recipe = await mealie_client.get_recipe(slug)
-
-        # Step 3: Update with scanned data, preserving Mealie's structure
+        # Step 2: Update with only the fields we need
         import uuid
 
         ingredients = []
         for ing in recipe_data.get("ingredients", []):
             ingredients.append({
                 "referenceId": str(uuid.uuid4()),
-                "title": "",
                 "note": ing,
-                "unit": None,
-                "food": None,
                 "disableAmount": True,
                 "quantity": 0,
                 "originalText": ing,
             })
 
         instructions = []
-        for i, step in enumerate(recipe_data.get("instructions", [])):
+        for step in recipe_data.get("instructions", []):
             instructions.append({
                 "id": str(uuid.uuid4()),
-                "title": "",
                 "text": step,
             })
 
-        full_recipe["description"] = recipe_data.get("description", "")
-        full_recipe["recipeYield"] = recipe_data.get("recipe_yield", "")
-        full_recipe["totalTime"] = recipe_data.get("total_time", "")
-        full_recipe["recipeIngredient"] = ingredients
-        full_recipe["recipeInstructions"] = instructions
+        update_data = {
+            "description": recipe_data.get("description", ""),
+            "recipeYield": recipe_data.get("recipe_yield", ""),
+            "totalTime": recipe_data.get("total_time", ""),
+            "recipeIngredient": ingredients,
+            "recipeInstructions": instructions,
+        }
 
-        await mealie_client.update_recipe(slug, full_recipe)
+        await mealie_client.update_recipe(slug, update_data)
         logger.info("Updated recipe %s with ingredients and instructions", slug)
 
-        # Step 4: Upload food photo if provided
+        # Step 3: Upload food photo if provided (with EXIF rotation fix)
         if food_photo and food_photo.size:
             photo_data = await food_photo.read()
+            content_type = food_photo.content_type
             try:
-                await mealie_client.upload_recipe_image(
-                    slug, photo_data, food_photo.content_type
-                )
+                photo_data, content_type = _fix_image_rotation(photo_data)
+                await mealie_client.upload_recipe_image(slug, photo_data, content_type)
                 logger.info("Uploaded food photo for %s", slug)
             except Exception as img_err:
                 logger.warning("Failed to upload recipe image: %s", img_err)
