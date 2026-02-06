@@ -70,7 +70,7 @@
 <section class="scan-section" id="step-preview" style="display:none">
     <h2>2. Controleer het recept</h2>
     <div id="food-photo-preview" style="display:none; margin-bottom: 1rem;">
-        <img id="food-photo-img" style="max-height: 200px; border-radius: 8px;">
+        <img id="food-photo-img" style="max-height: 200px; border-radius: 8px; image-orientation: from-image;">
         <p class="muted" style="margin-top: 0.25rem;">Deze foto wordt als receptafbeelding gebruikt</p>
     </div>
     <div class="scan-form">
@@ -218,14 +218,25 @@ function showPreview(recipe) {
     document.getElementById("recipe-ingredients").value = (recipe.ingredients || []).join("\n");
     document.getElementById("recipe-instructions").value = (recipe.instructions || []).join("\n");
 
-    // Show food photo preview
+    // Show food photo preview (server-side rotated for correct orientation)
     if (foodPhotoFile) {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            document.getElementById("food-photo-img").src = ev.target.result;
-            document.getElementById("food-photo-preview").style.display = "block";
-        };
-        reader.readAsDataURL(foodPhotoFile);
+        const photoForm = new FormData();
+        photoForm.append("image", foodPhotoFile);
+        fetch("/api/scan/fix-photo", { method: "POST", body: photoForm })
+            .then(r => r.blob())
+            .then(blob => {
+                document.getElementById("food-photo-img").src = URL.createObjectURL(blob);
+                document.getElementById("food-photo-preview").style.display = "block";
+            })
+            .catch(() => {
+                // Fallback to client-side preview
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    document.getElementById("food-photo-img").src = ev.target.result;
+                    document.getElementById("food-photo-preview").style.display = "block";
+                };
+                reader.readAsDataURL(foodPhotoFile);
+            });
     }
 
     document.getElementById("step-upload").style.display = "none";

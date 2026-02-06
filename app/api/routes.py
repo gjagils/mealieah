@@ -522,8 +522,16 @@ async def scan_recipe(images: list[UploadFile] = File(...)):
         )
 
 
-def _fix_image_rotation(image_data: bytes) -> tuple[bytes, str]:
-    """Auto-rotate image based on EXIF orientation and return as JPEG."""
+@router.post("/api/scan/fix-photo")
+async def fix_photo_rotation(image: UploadFile = File(...)):
+    """Rotate a photo based on EXIF and return corrected JPEG."""
+    data = await image.read()
+    corrected, content_type = _fix_image_for_mealie(data)
+    return Response(content=corrected, media_type=content_type)
+
+
+def _fix_image_for_mealie(image_data: bytes) -> tuple[bytes, str]:
+    """Auto-rotate image based on EXIF, resize for Mealie, return as JPEG."""
     import io
 
     from PIL import Image, ImageOps
@@ -532,6 +540,8 @@ def _fix_image_rotation(image_data: bytes) -> tuple[bytes, str]:
     img = ImageOps.exif_transpose(img)
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
+    # Resize to reasonable size for a recipe cover photo
+    img.thumbnail((1600, 1600), Image.LANCZOS)
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
     return buf.getvalue(), "image/jpeg"
@@ -561,19 +571,45 @@ async def save_scanned_recipe(
         slug = created if isinstance(created, str) else created.get("slug", created)
         logger.info("Created recipe in Mealie: %s", slug)
 
-        # Step 2: Update with minimal fields (Mealie v3 accepts strings as ingredients)
-        ingredients = [
-            {
-                "referenceId": str(uuid.uuid4()),
-                "note": ing,
-                "quantity": None,
-                "unit": None,
-                "food": None,
-                "originalText": ing,
-                "display": ing,
-            }
-            for ing in recipe_data.get("ingredients", [])
-        ]
+        # Step 2: Update with ingredients and instructions
+        import re
+
+        ingredients = []
+        for ing in recipe_data.get("ingredients", []):
+            # Try to parse "250g kipfilet" → quantity=250, unit=g, food=kipfilet
+            match = re.match(
+                r"^([\d.,/½¼¾⅓⅔]+)\s*(g|kg|ml|l|cl|dl|el|tl|eetlepels?|theelepels?|stuks?|stuk|blikjes?|zakjes?|potjes?)?\s*(.+)$",
+                ing.strip(),
+                re.IGNORECASE,
+            )
+            if match:
+                qty_str = match.group(1).replace(",", ".").replace("½", "0.5").replace("¼", "0.25").replace("¾", "0.75")
+                try:
+                    qty = float(qty_str)
+                except ValueError:
+                    qty = None
+                unit_name = match.group(2) or ""
+                food_name = match.group(3).strip().rstrip(",.")
+                ingredient = {
+                    "referenceId": str(uuid.uuid4()),
+                    "quantity": qty,
+                    "unit": {"name": unit_name} if unit_name else None,
+                    "food": {"name": food_name},
+                    "note": "",
+                    "originalText": ing,
+                    "display": ing,
+                }
+            else:
+                ingredient = {
+                    "referenceId": str(uuid.uuid4()),
+                    "quantity": 0,
+                    "unit": None,
+                    "food": None,
+                    "note": ing,
+                    "originalText": ing,
+                    "display": ing,
+                }
+            ingredients.append(ingredient)
 
         instructions = [
             {
@@ -602,7 +638,7 @@ async def save_scanned_recipe(
             photo_data = await food_photo.read()
             content_type = food_photo.content_type
             try:
-                photo_data, content_type = _fix_image_rotation(photo_data)
+                photo_data, content_type = _fix_image_for_mealie(photo_data)
                 await mealie_client.upload_recipe_image(slug, photo_data, content_type)
                 logger.info("Uploaded food photo for %s", slug)
             except Exception as img_err:
