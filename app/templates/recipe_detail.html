@@ -13,6 +13,7 @@
             <th>Ingredient</th>
             <th>Status</th>
             <th>AH Product</th>
+            <th>Aantal</th>
             <th>Acties</th>
         </tr>
     </thead>
@@ -44,6 +45,17 @@
                 <span class="muted">—</span>
                 {% else %}
                 <span class="muted">Zoek een AH product</span>
+                {% endif %}
+            </td>
+            <td class="ing-quantity">
+                {% if ing.mapping and ing.mapping.status == 'mapped' %}
+                <select class="qty-select" onchange="updateQuantity('{{ ing.reference_id }}', '{{ ing.display | replace("'", "\\'") }}', this.value, {{ ing.mapping.ah_product_id }}, '{{ ing.mapping.ah_product_name | replace("'", "\\'") }}', '{{ ing.mapping.ah_product_image_url }}', '{{ ing.mapping.ah_product_unit_size }}', '{{ ing.mapping.ah_product_price }}')">
+                    {% for n in range(1, 11) %}
+                    <option value="{{ n }}" {% if ing.mapping.ah_quantity == n %}selected{% endif %}>{{ n }}x</option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <span class="muted">—</span>
                 {% endif %}
             </td>
             <td class="ing-actions">
@@ -125,6 +137,16 @@ async function doSearch() {
                     <strong>${p.name}</strong><br>
                     <small>${p.brand || ""} ${p.unit_size} — &euro;${p.price}</small>
                 </div>
+                <div class="search-result-qty">
+                    <label>Aantal:</label>
+                    <select class="qty-select" onclick="event.stopPropagation()" id="qty-${p.id}">
+                        <option value="1">1x</option>
+                        <option value="2">2x</option>
+                        <option value="3">3x</option>
+                        <option value="4">4x</option>
+                        <option value="5">5x</option>
+                    </select>
+                </div>
             </div>`;
         }
         if (!data.products.length) html = "<p class='muted'>Geen resultaten</p>";
@@ -139,6 +161,8 @@ document.getElementById("search-input")?.addEventListener("keydown", (e) => {
 });
 
 async function selectProduct(product) {
+    const qtyEl = document.getElementById(`qty-${product.id}`);
+    const qty = qtyEl ? qtyEl.value : "1";
     const form = new FormData();
     form.set("recipe_slug", recipeSlug);
     form.set("recipe_name", recipeName);
@@ -150,10 +174,26 @@ async function selectProduct(product) {
     form.set("ah_product_image_url", product.image_url || "");
     form.set("ah_product_unit_size", product.unit_size || "");
     form.set("ah_product_price", product.price || "");
-    form.set("ah_quantity", "1");
+    form.set("ah_quantity", qty);
     await fetch("/api/mapping", { method: "POST", body: form });
     closeSearch();
     location.reload();
+}
+
+async function updateQuantity(refId, display, qty, productId, productName, imageUrl, unitSize, price) {
+    const form = new FormData();
+    form.set("recipe_slug", recipeSlug);
+    form.set("recipe_name", recipeName);
+    form.set("ingredient_reference_id", refId);
+    form.set("ingredient_display", display);
+    form.set("status", "mapped");
+    form.set("ah_product_id", productId);
+    form.set("ah_product_name", productName);
+    form.set("ah_product_image_url", imageUrl);
+    form.set("ah_product_unit_size", unitSize);
+    form.set("ah_product_price", price);
+    form.set("ah_quantity", qty);
+    await fetch("/api/mapping", { method: "POST", body: form });
 }
 
 async function markSkipped(refId, display) {

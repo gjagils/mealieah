@@ -175,6 +175,23 @@ a { color: var(--primary); }
 
 .ing-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 
+.qty-select {
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.search-result-qty {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
 /* Modal */
 .modal {
     position: fixed;
