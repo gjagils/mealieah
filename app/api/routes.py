@@ -35,7 +35,7 @@ def _set_setting(db: Session, key: str, value: str) -> None:
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def index(request: Request, db: Session = Depends(get_db)):
     logger.debug("Loading recipe list from Mealie")
     try:
         data = await mealie_client.get_recipes(per_page=100)
@@ -43,8 +43,25 @@ async def index(request: Request):
     except Exception as e:
         logger.error("Failed to fetch recipes: %s", e)
         recipes = []
+
+    # Get mapping counts per recipe
+    from sqlalchemy import case, func
+    counts = db.execute(
+        select(
+            IngredientMapping.recipe_slug,
+            func.count().label("total"),
+            func.count(case(
+                (IngredientMapping.status == "mapped", 1),
+            )).label("mapped"),
+            func.count(case(
+                (IngredientMapping.status == "skipped", 1),
+            )).label("skipped"),
+        ).group_by(IngredientMapping.recipe_slug)
+    ).all()
+    mapping_stats = {row.recipe_slug: {"total": row.total, "mapped": row.mapped, "skipped": row.skipped} for row in counts}
+
     return templates.TemplateResponse(
-        "recipes.html", {"request": request, "recipes": recipes}
+        "recipes.html", {"request": request, "recipes": recipes, "mapping_stats": mapping_stats}
     )
 
 

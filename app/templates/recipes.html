@@ -16,8 +16,20 @@
         {% endif %}
         <div class="recipe-card-body">
             <h3>{{ recipe.name }}</h3>
-            {% if recipe.description %}
-            <p>{{ recipe.description[:80] }}{% if recipe.description|length > 80 %}...{% endif %}</p>
+            {% set stats = mapping_stats.get(recipe.slug) %}
+            {% if stats %}
+            <div class="mapping-status">
+                {% if stats.mapped > 0 %}
+                <span class="badge badge-mapped">{{ stats.mapped }} gemapped</span>
+                {% endif %}
+                {% if stats.skipped > 0 %}
+                <span class="badge badge-skipped">{{ stats.skipped }} overgeslagen</span>
+                {% endif %}
+                {% set unmapped = stats.total - stats.mapped - stats.skipped %}
+                {% if unmapped > 0 %}
+                <span class="badge badge-unmapped">{{ unmapped }} open</span>
+                {% endif %}
+            </div>
             {% endif %}
         </div>
     </a>

@@ -85,6 +85,8 @@ a { color: var(--primary); }
 .recipe-card-body { padding: 0.75rem; }
 .recipe-card-body h3 { font-size: 1rem; margin-bottom: 0.25rem; }
 .recipe-card-body p { font-size: 0.85rem; color: var(--muted); }
+.mapping-status { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.35rem; }
+.mapping-status .badge { font-size: 0.7rem; padding: 0.15rem 0.4rem; }
 
 /* Tables */
 .ingredient-table {
