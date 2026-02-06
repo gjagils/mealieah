@@ -234,8 +234,13 @@ async def delete_mapping(
 @router.get("/mealplan", response_class=HTMLResponse)
 async def mealplan_page(request: Request, db: Session = Depends(get_db)):
     today = date.today()
-    monday = today - timedelta(days=today.weekday())  # Monday
-    friday = monday + timedelta(days=4)  # Friday
+    # Next upcoming Monday (or today if it's Monday)
+    days_until_monday = (7 - today.weekday()) % 7
+    if days_until_monday == 0 and today.weekday() == 0:
+        monday = today  # today is Monday
+    else:
+        monday = today + timedelta(days=days_until_monday)
+    friday = monday + timedelta(days=4)
 
     logger.debug("Loading meal plan %s to %s", monday, friday)
     try:
@@ -327,8 +332,9 @@ async def mealplan_page(request: Request, db: Session = Depends(get_db)):
 @router.post("/api/cart/fill")
 async def fill_cart(db: Session = Depends(get_db)):
     today = date.today()
-    start = today - timedelta(days=today.weekday())
-    end = start + timedelta(days=6)
+    days_until_monday = (7 - today.weekday()) % 7
+    start = today if today.weekday() == 0 else today + timedelta(days=days_until_monday)
+    end = start + timedelta(days=4)
 
     logger.info("Filling AH cart from meal plan %s to %s", start, end)
 
