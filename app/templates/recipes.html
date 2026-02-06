@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Recepten - Mealieah{% endblock %}
+{% block content %}
+<h1>Recepten</h1>
+
+{% if not recipes %}
+<p class="muted">Geen recepten gevonden. Controleer de Mealie verbinding in <a href="/settings">Instellingen</a>.</p>
+{% else %}
+<div class="recipe-grid">
+    {% for recipe in recipes %}
+    <a href="/recipe/{{ recipe.slug }}" class="recipe-card">
+        {% if recipe.image %}
+        <img src="{{ recipe.image }}" alt="{{ recipe.name }}" loading="lazy">
+        {% else %}
+        <div class="recipe-card-placeholder"></div>
+        {% endif %}
+        <div class="recipe-card-body">
+            <h3>{{ recipe.name }}</h3>
+            {% if recipe.description %}
+            <p>{{ recipe.description[:80] }}{% if recipe.description|length > 80 %}...{% endif %}</p>
+            {% endif %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

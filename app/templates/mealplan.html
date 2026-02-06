@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Weekmenu - Mealieah{% endblock %}
+{% block content %}
+<h1>Weekmenu</h1>
+<p class="muted">{{ start }} t/m {{ end }}</p>
+
+{% if not plans %}
+<p class="muted">Geen maaltijden gepland deze week in Mealie.</p>
+{% else %}
+<div class="plan-list">
+    {% for plan in plans %}
+    <div class="plan-item">
+        <span class="plan-type">{{ plan.entryType or plan.get("mealPlanType", "") }}</span>
+        {% if plan.recipe %}
+        <a href="/recipe/{{ plan.recipe.slug }}">{{ plan.recipe.name }}</a>
+        {% elif plan.title %}
+        <span>{{ plan.title }}</span>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+<hr>
+
+<h2>Boodschappenlijst</h2>
+
+{% if unmapped_items %}
+<div class="warning-box">
+    <strong>Let op:</strong> {{ unmapped_items|length }} ingredient(en) zijn nog niet gekoppeld.
+    <ul>
+    {% for item in unmapped_items %}
+        <li><a href="/recipe/{{ item.recipe_slug }}">{{ item.recipe_name }}</a>: {{ item.ingredient_display }}</li>
+    {% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+{% if cart_items %}
+<table class="ingredient-table">
+    <thead>
+        <tr>
+            <th>Recept</th>
+            <th>Ingredient</th>
+            <th>AH Product</th>
+            <th>Aantal</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in cart_items %}
+        <tr>
+            <td>{{ item.recipe_name }}</td>
+            <td>{{ item.ingredient_display }}</td>
+            <td>
+                <div class="ah-product">
+                    {% if item.ah_product_image_url %}
+                    <img src="{{ item.ah_product_image_url }}" alt="" class="ah-thumb">
+                    {% endif %}
+                    <span>{{ item.ah_product_name }}</span>
+                </div>
+            </td>
+            <td>{{ item.ah_quantity }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div class="cart-actions">
+    <button class="btn btn-primary" id="fill-cart-btn" onclick="fillCart()" {% if not has_token %}disabled{% endif %}>
+        Vul AH mandje ({{ cart_items|length }} producten)
+    </button>
+    {% if not has_token %}
+    <p class="muted">Stel eerst je AH token in via <a href="/settings">Instellingen</a>.</p>
+    {% endif %}
+    <div id="cart-result"></div>
+</div>
+{% else %}
+<p class="muted">Geen gekoppelde ingrediënten voor het huidige weekmenu.</p>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function fillCart() {
+    const btn = document.getElementById("fill-cart-btn");
+    const result = document.getElementById("cart-result");
+    btn.disabled = true;
+    btn.textContent = "Bezig...";
+    result.innerHTML = "";
+    try {
+        const resp = await fetch("/api/cart/fill", { method: "POST" });
+        const data = await resp.json();
+        if (data.ok) {
+            result.innerHTML = `<p class="success">Klaar! ${data.items_added} product(en) toegevoegd aan je AH mandje.</p>`;
+        } else {
+            result.innerHTML = `<p class="error">${data.error}</p>`;
+        }
+    } catch (e) {
+        result.innerHTML = `<p class="error">Fout: ${e.message}</p>`;
+    }
+    btn.disabled = false;
+    btn.textContent = "Vul AH mandje";
+}
+</script>
+{% endblock %}

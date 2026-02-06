@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Instellingen - Mealieah{% endblock %}
+{% block content %}
+<h1>Instellingen</h1>
+
+<!-- Connection status -->
+<section class="settings-section">
+    <h2>Status</h2>
+    <table class="settings-table">
+        <tr>
+            <td>Mealie verbinding</td>
+            <td>
+                {% if mealie_ok %}
+                <span class="badge badge-mapped">Verbonden</span>
+                {% else %}
+                <span class="badge badge-unmapped">Niet bereikbaar</span>
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <td>AH token</td>
+            <td>
+                {% if ah_token_set %}
+                <span class="badge badge-mapped">Ingesteld</span>
+                {% else %}
+                <span class="badge badge-unmapped">Niet ingesteld</span>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+</section>
+
+<!-- Logging -->
+<section class="settings-section">
+    <h2>Logging</h2>
+    <p class="muted">Verbose logging toont extra details in de container logs (<code>docker logs Mealieah</code>).</p>
+    <form method="post" action="/settings/logging">
+        <label class="toggle-label">
+            <input type="hidden" name="verbose" value="false">
+            <input type="checkbox" name="verbose" value="true" {% if verbose_logging %}checked{% endif %}
+                   onchange="this.form.submit()">
+            Verbose logging {{ "aan" if verbose_logging else "uit" }}
+        </label>
+    </form>
+</section>
+
+<!-- AH Token -->
+<section class="settings-section">
+    <h2>Albert Heijn Token</h2>
+    <p class="muted">
+        Om je AH winkelmandje te vullen heb je een access token nodig van je AH account.
+        Dit kun je ophalen uit de AH app of via browser developer tools op <code>ah.nl</code>.
+    </p>
+    <form method="post" action="/settings/ah-token">
+        <div class="form-group">
+            <input type="password" name="ah_token" placeholder="Plak je AH access token hier"
+                   class="form-input" autocomplete="off">
+            <button type="submit" class="btn">Opslaan</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

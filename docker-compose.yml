@@ -1,0 +1,86 @@
+services:
+  db:
+    image: postgres:17
+    container_name: Mealie-DB
+    hostname: mealie-db
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "mealie", "-U", "mealieuser"]
+      timeout: 45s
+      interval: 10s
+      retries: 10
+    volumes:
+      - /volume1/docker/mealie/db:/var/lib/postgresql/data:rw
+    environment:
+      POSTGRES_DB: mealie
+      POSTGRES_USER: mealieuser
+      POSTGRES_PASSWORD: mealiepass
+    restart: on-failure:5
+
+  mealie:
+    image: ghcr.io/mealie-recipes/mealie:latest
+    container_name: Mealie
+    hostname: mealie
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    healthcheck:
+      test: timeout 10s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    ports:
+      - 9925:9000
+    volumes:
+      - /volume1/docker/mealie/data:/app/data/:rw
+    environment:
+      TZ: Europe/Amsterdam
+      PUID: 1026
+      PGID: 100
+      MAX_WORKERS: 1
+      WEB_CONCURRENCY: 1
+      ALLOW_SIGNUP: true
+      BASE_URL: https://recepten.gerdjan.nl
+      DB_ENGINE: postgres
+      OPENAI_API_KEY:
+      OPENAI_MODEL: gpt-4o-mini
+      POSTGRES_USER: mealieuser
+      POSTGRES_PASSWORD: mealiepass
+      POSTGRES_SERVER: mealie-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mealie
+      SMTP_HOST: smtp.gmail.com
+      SMTP_PORT: 587
+      SMTP_FROM_NAME: Mealie
+      SMTP_AUTH_STRATEGY: TLS
+      SMTP_FROM_EMAIL: gerdjanvangils@gmail.com
+      SMTP_USER: gerdjanvangils@gmail.com
+      SMTP_PASSWORD:
+    restart: on-failure:5
+    depends_on:
+      db:
+        condition: service_healthy
+
+  mealieah:
+    build: .
+    container_name: Mealieah
+    hostname: mealieah
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - 9926:8000
+    environment:
+      TZ: Europe/Amsterdam
+      MEALIE_URL: http://mealie:9000
+      MEALIE_API_TOKEN: ""
+      POSTGRES_USER: mealieuser
+      POSTGRES_PASSWORD: mealiepass
+      POSTGRES_SERVER: mealie-db
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: mealie
+      LOG_LEVEL: INFO
+    restart: on-failure:5
+    depends_on:
+      - mealie
