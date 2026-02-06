@@ -554,13 +554,15 @@ async def save_scanned_recipe(
         )
 
     try:
+        import uuid
+
         # Step 1: Create recipe in Mealie (returns slug)
         created = await mealie_client.create_recipe(name)
         slug = created if isinstance(created, str) else created.get("slug", created)
         logger.info("Created recipe in Mealie: %s", slug)
 
-        # Step 2: Update with only the fields we need
-        import uuid
+        # Step 2: Fetch fresh recipe, update fields, and save back
+        full_recipe = await mealie_client.get_recipe(slug)
 
         ingredients = []
         for ing in recipe_data.get("ingredients", []):
@@ -579,15 +581,17 @@ async def save_scanned_recipe(
                 "text": step,
             })
 
-        update_data = {
-            "description": recipe_data.get("description", ""),
-            "recipeYield": recipe_data.get("recipe_yield", ""),
-            "totalTime": recipe_data.get("total_time", ""),
-            "recipeIngredient": ingredients,
-            "recipeInstructions": instructions,
-        }
+        full_recipe["description"] = recipe_data.get("description", "")
+        full_recipe["recipeYield"] = recipe_data.get("recipe_yield", "")
+        full_recipe["totalTime"] = recipe_data.get("total_time", "")
+        full_recipe["recipeIngredient"] = ingredients
+        full_recipe["recipeInstructions"] = instructions
 
-        await mealie_client.update_recipe(slug, update_data)
+        # Remove potentially problematic computed fields
+        for key in ["extras", "comments", "assets", "settings"]:
+            full_recipe.pop(key, None)
+
+        await mealie_client.update_recipe(slug, full_recipe)
         logger.info("Updated recipe %s with ingredients and instructions", slug)
 
         # Step 3: Upload food photo if provided (with EXIF rotation fix)
