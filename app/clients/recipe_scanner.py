@@ -58,16 +58,20 @@ Antwoord ALLEEN met valid JSON, geen tekst eromheen. Gebruik dit formaat:
         "2 teentjes knoflook"
     ],
     "instructions": [
-        "Verwarm de oven voor op 180 graden.",
-        "Snijd de kipfilet in blokjes.",
-        "Bak de ui glazig in een pan."
+        "Verwarm de oven voor op 180 graden. Snijd de kipfilet in blokjes en kruid met peper en zout.",
+        "Bak de kipfilet in een pan met olie. Voeg de ui toe en bak kort mee.",
+        "Meng de rucola met munt, citroensap en olijfolie. Verdeel over de borden."
     ],
     "food_photo_index": 0
 }
 
 Regels:
 - Schrijf ingrediënten zoals ze in het recept staan (met hoeveelheid en eenheid)
-- Schrijf elke bereidingsstap als een aparte zin
+- BELANGRIJK voor bereidingsstappen: behoud de originele stap-indeling van het recept.
+  Als het recept genummerde stappen heeft (1, 2, 3...) of stappen met titels, gebruik
+  dan dezelfde stappen. Eén stap kan meerdere zinnen bevatten. Maak NIET van elke zin
+  een aparte stap. Voorbeeld: als stap 1 drie zinnen bevat, dan is dat één item in de
+  instructions lijst met alle drie de zinnen.
 - Als iets niet leesbaar is, doe je beste gok op basis van context
 - Houd de taal van het originele recept aan (meestal Nederlands)
 - Als je meerdere recepten ziet, neem alleen het meest prominente recept
