@@ -241,6 +241,41 @@ a { color: var(--primary); }
 .search-result:hover { background: #f0f7ff; }
 .search-result img { width: 50px; height: 50px; object-fit: contain; }
 
+/* Suggestions */
+.suggestions-header {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+}
+
+.suggestion-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.6rem;
+    border: 2px solid #c8e6c9;
+    border-radius: var(--radius);
+    margin-bottom: 0.4rem;
+    cursor: pointer;
+    background: #f1f8e9;
+    transition: background 0.15s;
+}
+
+.suggestion-item:hover { background: #dcedc8; }
+
+.suggestion-item.suggestion-skip {
+    border-color: #ffe0b2;
+    background: #fff8e1;
+}
+
+.suggestion-item.suggestion-skip:hover { background: #ffecb3; }
+
+.suggestion-info { flex: 1; font-size: 0.85rem; }
+.suggestion-info small { font-size: 0.78rem; }
+
+#search-suggestions:not(:empty) { margin-bottom: 0.75rem; }
+
 /* Settings */
 .settings-section {
     background: var(--surface);

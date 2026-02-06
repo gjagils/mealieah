@@ -152,6 +152,83 @@ async def ah_search(q: str = Query(..., min_length=1)):
         return {"products": [], "error": str(e)}
 
 
+# ── Mapping Suggestions ───────────────────────────────────────────────
+
+
+@router.get("/api/mapping/suggestions")
+async def mapping_suggestions(
+    ingredient_display: str = Query(...),
+    recipe_slug: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Find existing mappings from other recipes for similar ingredients."""
+    import re
+
+    # Strip quantities and units to get the food keyword
+    cleaned = re.sub(
+        r"[\d.,]+\s*(g|kg|ml|l|cl|dl|el|tl|eetlepels?|theelepels?|stuks?|stuk|snuf|snufje|takjes?|tenen?|blaadjes?|plakjes?|schijfjes?|blikjes?|zakjes?|potjes?)\b",
+        "",
+        ingredient_display,
+        flags=re.IGNORECASE,
+    ).strip()
+    # Remove leading/trailing punctuation and whitespace
+    cleaned = re.sub(r"^[\s,.-]+|[\s,.-]+$", "", cleaned)
+
+    if not cleaned or len(cleaned) < 2:
+        return {"suggestions": []}
+
+    # Search for mapped/skipped ingredients in OTHER recipes with similar display text
+    keywords = [w for w in cleaned.split() if len(w) >= 2]
+    if not keywords:
+        return {"suggestions": []}
+
+    # Find mappings from other recipes where display contains the keywords
+    query = select(IngredientMapping).where(
+        IngredientMapping.recipe_slug != recipe_slug,
+        IngredientMapping.status.in_(["mapped", "skipped"]),
+    )
+
+    results = db.execute(query).scalars().all()
+
+    # Score and filter matches by keyword overlap
+    suggestions = []
+    seen_products: set[int | None] = set()
+    for m in results:
+        m_display_lower = m.ingredient_display.lower()
+        matched_keywords = sum(1 for kw in keywords if kw.lower() in m_display_lower)
+        if matched_keywords == 0:
+            continue
+
+        # Deduplicate: skip if we've already seen this product
+        if m.status == "mapped" and m.ah_product_id in seen_products:
+            continue
+        if m.status == "skipped" and None in seen_products:
+            continue
+
+        score = matched_keywords / len(keywords)
+        if score >= 0.5:  # At least half of keywords must match
+            suggestions.append({
+                "status": m.status,
+                "recipe_name": m.recipe_name,
+                "ingredient_display": m.ingredient_display,
+                "ah_product_id": m.ah_product_id,
+                "ah_product_name": m.ah_product_name,
+                "ah_product_image_url": m.ah_product_image_url,
+                "ah_product_unit_size": m.ah_product_unit_size,
+                "ah_product_price": m.ah_product_price,
+                "score": score,
+            })
+            if m.status == "mapped":
+                seen_products.add(m.ah_product_id)
+            else:
+                seen_products.add(None)
+
+    # Sort by score descending, then mapped before skipped
+    suggestions.sort(key=lambda s: (-s["score"], s["status"] != "mapped"))
+
+    return {"suggestions": suggestions[:5]}
+
+
 # ── Mapping CRUD ───────────────────────────────────────────────────────
 
 

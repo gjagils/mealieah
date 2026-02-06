@@ -97,6 +97,7 @@
             <input type="text" id="search-input" placeholder="Zoek in AH assortiment..." autofocus>
             <button class="btn" onclick="doSearch()">Zoek</button>
         </div>
+        <div id="search-suggestions"></div>
         <div id="search-results"></div>
     </div>
 </div>
@@ -116,12 +117,70 @@ function openSearch(refId, display) {
     document.getElementById("search-input").value = display.replace(/[\d.,]+\s*(g|kg|ml|l|el|tl|eetlepel|theelepel|stuks?|stuk)\s*/gi, '').trim();
     document.getElementById("search-modal").style.display = "flex";
     document.getElementById("search-input").focus();
+    loadSuggestions(display);
     doSearch();
+}
+
+async function loadSuggestions(display) {
+    const container = document.getElementById("search-suggestions");
+    container.innerHTML = "";
+    try {
+        const resp = await fetch(`/api/mapping/suggestions?ingredient_display=${encodeURIComponent(display)}&recipe_slug=${encodeURIComponent(recipeSlug)}`);
+        const data = await resp.json();
+        if (!data.suggestions || !data.suggestions.length) return;
+
+        let html = '<div class="suggestions-header">Eerder gekoppeld in andere recepten:</div>';
+        for (const s of data.suggestions) {
+            if (s.status === "mapped") {
+                html += `
+                <div class="suggestion-item" onclick='applySuggestion(${JSON.stringify(s)})'>
+                    ${s.ah_product_image_url ? `<img src="${s.ah_product_image_url}" alt="" class="ah-thumb">` : ""}
+                    <div class="suggestion-info">
+                        <strong>${s.ah_product_name}</strong><br>
+                        <small>${s.ah_product_unit_size || ""} — &euro;${s.ah_product_price || ""}</small><br>
+                        <small class="muted">Uit: ${s.recipe_name || "ander recept"}</small>
+                    </div>
+                    <span class="badge badge-mapped">Overnemen</span>
+                </div>`;
+            } else {
+                html += `
+                <div class="suggestion-item suggestion-skip" onclick="markSkipped('${currentRefId}', '${currentDisplay.replace(/'/g, "\\'")}')">
+                    <div class="suggestion-info">
+                        <strong>Overslaan</strong><br>
+                        <small class="muted">Overgeslagen in: ${s.recipe_name || "ander recept"}</small>
+                    </div>
+                    <span class="badge badge-skipped">Overslaan</span>
+                </div>`;
+            }
+        }
+        container.innerHTML = html;
+    } catch (e) {
+        // Silently fail, suggestions are optional
+    }
+}
+
+async function applySuggestion(suggestion) {
+    const form = new FormData();
+    form.set("recipe_slug", recipeSlug);
+    form.set("recipe_name", recipeName);
+    form.set("ingredient_reference_id", currentRefId);
+    form.set("ingredient_display", currentDisplay);
+    form.set("status", "mapped");
+    form.set("ah_product_id", suggestion.ah_product_id);
+    form.set("ah_product_name", suggestion.ah_product_name);
+    form.set("ah_product_image_url", suggestion.ah_product_image_url || "");
+    form.set("ah_product_unit_size", suggestion.ah_product_unit_size || "");
+    form.set("ah_product_price", suggestion.ah_product_price || "");
+    form.set("ah_quantity", "1");
+    await fetch("/api/mapping", { method: "POST", body: form });
+    closeSearch();
+    location.reload();
 }
 
 function closeSearch() {
     document.getElementById("search-modal").style.display = "none";
     document.getElementById("search-results").innerHTML = "";
+    document.getElementById("search-suggestions").innerHTML = "";
 }
 
 async function doSearch() {
