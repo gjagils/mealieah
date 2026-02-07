@@ -62,10 +62,17 @@ class MealieClient:
             return resp.json()
 
     async def update_recipe(self, slug: str, data: dict) -> dict:
-        """Update recipe fields in Mealie by merging into the full recipe object."""
+        """Update recipe fields in Mealie using safe GET-merge-PATCH approach."""
+        # Fields safe to read from GET and send back via PATCH
+        SAFE_FIELDS = {
+            "name", "description", "recipeYield", "totalTime", "prepTime",
+            "performTime", "recipeCategory", "tags", "tools", "nutrition",
+            "recipeIngredient", "recipeInstructions", "settings", "notes",
+            "orgURL", "slug",
+        }
         async with httpx.AsyncClient() as client:
-            # Fetch the full recipe first so we can merge our changes into it
-            logger.info("Fetching full recipe before update: %s", slug)
+            # Fetch recipe to use as base, keeping only safe fields
+            logger.info("Fetching recipe before update: %s", slug)
             get_resp = await client.get(
                 f"{self.base_url}/api/recipes/{slug}",
                 headers=self._headers,
@@ -73,15 +80,10 @@ class MealieClient:
             )
             if get_resp.status_code == 200:
                 full_recipe = get_resp.json()
-                # Strip server-computed fields that cause validation errors on write
-                for key in ("id", "dateAdded", "dateUpdated", "createdAt", "updatedAt",
-                            "extras", "comments", "rating"):
-                    full_recipe.pop(key, None)
-                # Merge our update data into the full recipe
-                full_recipe.update(data)
-                update_payload = full_recipe
+                update_payload = {k: v for k, v in full_recipe.items() if k in SAFE_FIELDS}
+                update_payload.update(data)
             else:
-                logger.warning("Could not fetch recipe %s (HTTP %s), using partial data",
+                logger.warning("Could not fetch recipe %s (HTTP %s), using data as-is",
                                slug, get_resp.status_code)
                 update_payload = data
 
