@@ -8,7 +8,7 @@ from PIL import Image, ImageOps
 from app.config import settings
 from app.logging_config import logger
 
-MAX_IMAGE_BYTES = 4_800_000  # Claude API limit is 5MB, keep margin
+MAX_IMAGE_BYTES = 3_900_000  # Claude API limit is 5MB on base64; base64 adds ~33% so 3.9MB raw → ~5.2MB base64
 
 
 def _resize_for_api(image_data: bytes, media_type: str) -> tuple[bytes, str]:
