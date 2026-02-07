@@ -603,9 +603,10 @@ async def rotate_photo(image: UploadFile = File(...), degrees: int = Form(90)):
 @router.post("/api/scan/save")
 async def save_scanned_recipe(
     recipe_json: str = Form(...),
-    food_photo: UploadFile | None = File(None),
+    header_photo_index: int = Form(0),
+    photos: list[UploadFile] = File([]),
 ):
-    """Save a scanned recipe to Mealie, optionally with a food photo."""
+    """Save a scanned recipe to Mealie, with header photo and reference assets."""
     import json as json_mod
 
     recipe_data = json_mod.loads(recipe_json)
@@ -670,16 +671,25 @@ async def save_scanned_recipe(
         await mealie_client.update_recipe(slug, update_data)
         logger.info("Updated recipe %s with ingredients and instructions", slug)
 
-        # Step 3: Upload food photo if provided (with EXIF rotation fix)
-        if food_photo and food_photo.size:
-            photo_data = await food_photo.read()
-            content_type = food_photo.content_type
+        # Step 3: Upload photos
+        for i, photo in enumerate(photos):
+            if not photo.size:
+                continue
+            photo_data = await photo.read()
+            content_type = photo.content_type
             try:
                 photo_data, content_type = _fix_image_for_mealie(photo_data)
-                await mealie_client.upload_recipe_image(slug, photo_data, content_type)
-                logger.info("Uploaded food photo for %s", slug)
+                if i == header_photo_index:
+                    # Upload as cover/header photo
+                    await mealie_client.upload_recipe_image(slug, photo_data, content_type)
+                    logger.info("Uploaded header photo for %s (photo %d)", slug, i)
+                else:
+                    # Upload as reference asset
+                    asset_name = f"referentie-{i}"
+                    await mealie_client.upload_recipe_asset(slug, photo_data, asset_name, content_type)
+                    logger.info("Uploaded reference asset '%s' for %s", asset_name, slug)
             except Exception as img_err:
-                logger.warning("Failed to upload recipe image: %s", img_err)
+                logger.warning("Failed to upload photo %d for %s: %s", i, slug, img_err)
 
         return {"ok": True, "slug": slug}
     except httpx.HTTPStatusError as e:

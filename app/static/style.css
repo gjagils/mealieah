@@ -482,6 +482,47 @@ code {
     resize: vertical;
 }
 
+/* Photo selection grid */
+.photo-select-grid {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.photo-select-item {
+    position: relative;
+    width: 120px;
+    height: 160px;
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    border: 3px solid var(--border);
+    transition: border-color 0.15s;
+}
+.photo-select-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    image-orientation: from-image;
+}
+.photo-select-item.photo-header {
+    border-color: var(--green);
+}
+.photo-label {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.2rem;
+    color: #fff;
+    background: rgba(0,0,0,0.5);
+}
+.photo-header .photo-label {
+    background: var(--green);
+}
+
 /* Category chips */
 .category-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .chip {

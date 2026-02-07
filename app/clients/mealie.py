@@ -104,6 +104,25 @@ class MealieClient:
             resp.raise_for_status()
             return True
 
+    async def upload_recipe_asset(self, slug: str, image_data: bytes, name: str, media_type: str) -> dict:
+        """Upload an image as a recipe asset (additional reference photo)."""
+        ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        ext = ext_map.get(media_type, "jpg")
+        async with httpx.AsyncClient() as client:
+            logger.info("Uploading recipe asset '%s' for %s (%d bytes)", name, slug, len(image_data))
+            headers = {}
+            if self.api_token:
+                headers["Authorization"] = f"Bearer {self.api_token}"
+            resp = await client.post(
+                f"{self.base_url}/api/recipes/{slug}/assets",
+                headers=headers,
+                files={"file": (f"{name}.{ext}", image_data, media_type)},
+                data={"name": name, "icon": "mdi-file-image", "extension": ext},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     async def get_categories(self) -> list[dict]:
         """Fetch all recipe categories from Mealie."""
         async with httpx.AsyncClient() as client:

@@ -69,12 +69,10 @@
 <!-- Step 2: Preview & Edit -->
 <section class="scan-section" id="step-preview" style="display:none">
     <h2>2. Controleer het recept</h2>
-    <div id="food-photo-preview" style="display:none; margin-bottom: 1rem;">
-        <div style="display: inline-block; position: relative;">
-            <img id="food-photo-img" style="max-height: 200px; border-radius: 8px;">
-            <button class="btn btn-sm" onclick="rotatePreviewPhoto()" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 50%; width: 32px; height: 32px; padding: 0; font-size: 1.1rem; cursor: pointer;" title="Draaien">&#8635;</button>
-        </div>
-        <p class="muted" style="margin-top: 0.25rem;">Deze foto wordt als receptafbeelding gebruikt</p>
+    <div id="photo-select-area" style="display:none; margin-bottom: 1rem;">
+        <label>Foto's</label>
+        <p class="muted" style="margin-bottom: 0.5rem;">Klik op een foto om deze als headerfoto te kiezen. De rest wordt als referentie opgeslagen.</p>
+        <div class="photo-select-grid" id="photo-select-grid"></div>
     </div>
     <div class="scan-form">
         <label>Naam</label>
@@ -141,9 +139,8 @@
 <script>
 const mealieExternalUrl = "{{ mealie_external_url | default('', true) }}";
 const selectedFiles = [null, null, null, null];
-let foodPhotoIndex = null;
-let foodPhotoFile = null;
-let foodPhotoRotation = 0; // Track cumulative rotation in degrees
+let scannedFiles = [];     // Files used for scanning (filtered from selectedFiles)
+let headerPhotoIndex = 0;  // Which scannedFiles[] index is the header photo
 
 function toggleChip(el) {
     el.classList.toggle("chip-selected");
@@ -242,18 +239,18 @@ function updateScanButton() {
 }
 
 async function scanImages() {
-    const files = selectedFiles.filter(f => f !== null);
-    if (!files.length) return;
+    scannedFiles = selectedFiles.filter(f => f !== null);
+    if (!scannedFiles.length) return;
 
     const btn = document.getElementById("scan-btn");
     const status = document.getElementById("scan-status");
     btn.disabled = true;
     btn.textContent = "Bezig met herkennen...";
-    const n = files.length;
+    const n = scannedFiles.length;
     status.innerHTML = `<p class="muted">${n} foto${n > 1 ? "'s" : ""} worden geanalyseerd, dit kan 5-15 seconden duren...</p>`;
 
     const formData = new FormData();
-    for (const f of files) {
+    for (const f of scannedFiles) {
         formData.append("images", f);
     }
 
@@ -267,15 +264,12 @@ async function scanImages() {
             return;
         }
 
-        // Determine which photo to use as food photo
+        // Determine which photo to use as header
         const idx = data.recipe.food_photo_index;
-        if (idx !== null && idx !== undefined && idx >= 0 && idx < files.length) {
-            foodPhotoIndex = idx;
-            foodPhotoFile = files[idx];
+        if (idx !== null && idx !== undefined && idx >= 0 && idx < scannedFiles.length) {
+            headerPhotoIndex = idx;
         } else {
-            // Default to first photo
-            foodPhotoIndex = 0;
-            foodPhotoFile = files[0];
+            headerPhotoIndex = 0;
         }
 
         showPreview(data.recipe);
@@ -294,61 +288,57 @@ function showPreview(recipe) {
     document.getElementById("recipe-ingredients").value = (recipe.ingredients || []).join("\n");
     document.getElementById("recipe-instructions").value = (recipe.instructions || []).join("\n");
 
-    // Show food photo preview (server-side EXIF rotated for correct orientation)
-    if (foodPhotoFile) {
-        const photoForm = new FormData();
-        photoForm.append("image", foodPhotoFile);
-        fetch("/api/scan/fix-photo", { method: "POST", body: photoForm })
-            .then(r => {
-                if (!r.ok) throw new Error("Server returned " + r.status);
-                return r.blob();
-            })
-            .then(blob => {
-                document.getElementById("food-photo-img").src = URL.createObjectURL(blob);
-                document.getElementById("food-photo-preview").style.display = "block";
-            })
-            .catch(() => {
-                // Fallback: use client-side preview with CSS image-orientation
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    document.getElementById("food-photo-img").src = ev.target.result;
-                    document.getElementById("food-photo-preview").style.display = "block";
-                };
-                reader.readAsDataURL(foodPhotoFile);
-            });
+    // Build photo selection grid
+    const grid = document.getElementById("photo-select-grid");
+    grid.innerHTML = "";
+    if (scannedFiles.length > 0) {
+        scannedFiles.forEach((file, i) => {
+            const item = document.createElement("div");
+            item.className = "photo-select-item" + (i === headerPhotoIndex ? " photo-header" : "");
+            item.dataset.index = i;
+            item.onclick = () => selectHeaderPhoto(i);
+
+            const img = document.createElement("img");
+            item.appendChild(img);
+
+            const label = document.createElement("span");
+            label.className = "photo-label";
+            label.textContent = i === headerPhotoIndex ? "Header" : "Referentie";
+            item.appendChild(label);
+
+            grid.appendChild(item);
+
+            // Load EXIF-corrected preview
+            const photoForm = new FormData();
+            photoForm.append("image", file);
+            fetch("/api/scan/fix-photo", { method: "POST", body: photoForm })
+                .then(r => { if (!r.ok) throw new Error(); return r.blob(); })
+                .then(blob => { img.src = URL.createObjectURL(blob); })
+                .catch(() => {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => { img.src = ev.target.result; };
+                    reader.readAsDataURL(file);
+                });
+        });
+        document.getElementById("photo-select-area").style.display = "block";
     }
 
     document.getElementById("step-upload").style.display = "none";
     document.getElementById("step-preview").style.display = "block";
 }
 
-async function rotatePreviewPhoto() {
-    if (!foodPhotoFile) return;
-    foodPhotoRotation = (foodPhotoRotation + 90) % 360;
-    const img = document.getElementById("food-photo-img");
-
-    // Send to server to rotate
-    const photoForm = new FormData();
-    photoForm.append("image", foodPhotoFile);
-    photoForm.append("degrees", foodPhotoRotation);
-    try {
-        const resp = await fetch("/api/scan/rotate-photo", { method: "POST", body: photoForm });
-        if (!resp.ok) throw new Error("Server error");
-        const blob = await resp.blob();
-        // Store rotated blob as new file for saving to Mealie
-        foodPhotoFile = new File([blob], "food-photo.jpg", { type: "image/jpeg" });
-        foodPhotoRotation = 0; // Reset since rotation is now baked into the file
-        img.src = URL.createObjectURL(blob);
-    } catch (e) {
-        // Fallback: CSS rotation
-        img.style.transform = `rotate(${foodPhotoRotation}deg)`;
-    }
+function selectHeaderPhoto(index) {
+    headerPhotoIndex = index;
+    document.querySelectorAll(".photo-select-item").forEach((el, i) => {
+        el.classList.toggle("photo-header", i === index);
+        el.querySelector(".photo-label").textContent = i === index ? "Header" : "Referentie";
+    });
 }
 
 function backToUpload() {
     document.getElementById("step-preview").style.display = "none";
     document.getElementById("step-upload").style.display = "block";
-    document.getElementById("food-photo-preview").style.display = "none";
+    document.getElementById("photo-select-area").style.display = "none";
     document.getElementById("scan-btn").disabled = false;
     document.getElementById("scan-btn").textContent = "Recept herkennen";
     document.getElementById("scan-status").innerHTML = "";
@@ -380,8 +370,9 @@ async function saveRecipe() {
 
     const formData = new FormData();
     formData.append("recipe_json", JSON.stringify(recipe));
-    if (foodPhotoFile) {
-        formData.append("food_photo", foodPhotoFile);
+    formData.append("header_photo_index", headerPhotoIndex);
+    for (const f of scannedFiles) {
+        formData.append("photos", f);
     }
 
     try {
@@ -419,11 +410,10 @@ function resetScan() {
         slotEl.querySelector('.photo-slot-empty').style.display = 'flex';
         slotEl.querySelector('.photo-slot-preview').style.display = 'none';
     }
-    foodPhotoIndex = null;
-    foodPhotoFile = null;
-    foodPhotoRotation = 0;
-    document.getElementById("food-photo-img").src = '';
-    document.getElementById("food-photo-preview").style.display = "none";
+    scannedFiles = [];
+    headerPhotoIndex = 0;
+    document.getElementById("photo-select-grid").innerHTML = "";
+    document.getElementById("photo-select-area").style.display = "none";
     document.getElementById("step-done").style.display = "none";
     document.getElementById("step-preview").style.display = "none";
     document.getElementById("step-upload").style.display = "block";
