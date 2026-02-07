@@ -94,6 +94,19 @@
             </div>
         </div>
 
+        <label>Categorie</label>
+        <div class="category-selector">
+            <div class="category-chips" id="category-chips">
+                {% for cat in categories %}
+                <button type="button" class="chip" data-id="{{ cat.id }}" data-name="{{ cat.name }}" data-slug="{{ cat.slug }}" onclick="toggleChip(this)">{{ cat.name }}</button>
+                {% endfor %}
+            </div>
+            <div class="category-add" style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                <input type="text" id="new-category-name" class="form-input" placeholder="Nieuwe categorie..." style="flex: 1; font-size: 0.85rem; padding: 0.3rem 0.6rem;">
+                <button type="button" class="btn btn-sm" onclick="addCategory()">+</button>
+            </div>
+        </div>
+
         <label>Ingredienten</label>
         <textarea id="recipe-ingredients" class="form-textarea" rows="8" placeholder="Een ingredient per regel"></textarea>
 
@@ -131,6 +144,51 @@ const selectedFiles = [null, null, null, null];
 let foodPhotoIndex = null;
 let foodPhotoFile = null;
 let foodPhotoRotation = 0; // Track cumulative rotation in degrees
+
+function toggleChip(el) {
+    el.classList.toggle("chip-selected");
+}
+
+function getSelectedCategories() {
+    return Array.from(document.querySelectorAll("#category-chips .chip.chip-selected")).map(el => ({
+        id: el.dataset.id,
+        name: el.dataset.name,
+        slug: el.dataset.slug,
+    }));
+}
+
+async function addCategory() {
+    const input = document.getElementById("new-category-name");
+    const name = input.value.trim();
+    if (!name) return;
+    input.disabled = true;
+    try {
+        const resp = await fetch("/api/categories", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({name}),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            const cat = data.category;
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "chip chip-selected";
+            chip.dataset.id = cat.id;
+            chip.dataset.name = cat.name;
+            chip.dataset.slug = cat.slug;
+            chip.textContent = cat.name;
+            chip.onclick = function() { toggleChip(this); };
+            document.getElementById("category-chips").appendChild(chip);
+            input.value = "";
+        } else {
+            alert(data.error || "Fout bij aanmaken categorie");
+        }
+    } catch (e) {
+        alert("Fout: " + e.message);
+    }
+    input.disabled = false;
+}
 
 function addPhoto(slot) {
     const el = document.querySelector(`#slot-${slot} input[type=file]`);
@@ -310,6 +368,7 @@ async function saveRecipe() {
         total_time: document.getElementById("recipe-time").value.trim(),
         ingredients: document.getElementById("recipe-ingredients").value.split("\n").filter(l => l.trim()),
         instructions: document.getElementById("recipe-instructions").value.split("\n").filter(l => l.trim()),
+        categories: getSelectedCategories(),
     };
 
     if (!recipe.name) {
@@ -374,6 +433,7 @@ function resetScan() {
     document.getElementById("save-btn").disabled = false;
     document.getElementById("save-btn").textContent = "Opslaan in Mealie";
     document.getElementById("save-status").innerHTML = "";
+    document.querySelectorAll("#category-chips .chip").forEach(c => c.classList.remove("chip-selected"));
 }
 </script>
 {% endblock %}

@@ -474,14 +474,46 @@ async def fill_cart(db: Session = Depends(get_db)):
 @router.get("/scan", response_class=HTMLResponse)
 async def scan_page(request: Request):
     has_key = bool(settings.anthropic_api_key)
+    # Fetch categories for the label selector
+    try:
+        categories = await mealie_client.get_categories()
+    except Exception:
+        categories = []
     return templates.TemplateResponse(
         "scan.html",
         {
             "request": request,
             "has_api_key": has_key,
             "mealie_external_url": settings.mealie_external_url,
+            "categories": categories,
         },
     )
+
+
+@router.get("/api/categories")
+async def get_categories():
+    """Return all Mealie recipe categories."""
+    try:
+        categories = await mealie_client.get_categories()
+        return {"ok": True, "categories": categories}
+    except Exception as e:
+        logger.error("Failed to fetch categories: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@router.post("/api/categories")
+async def create_category(request: Request):
+    """Create a new Mealie recipe category."""
+    data = await request.json()
+    name = data.get("name", "").strip()
+    if not name:
+        return JSONResponse({"ok": False, "error": "Naam is verplicht."}, status_code=400)
+    try:
+        cat = await mealie_client.create_category(name)
+        return {"ok": True, "category": cat}
+    except Exception as e:
+        logger.error("Failed to create category: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
 @router.post("/api/scan")
@@ -629,6 +661,11 @@ async def save_scanned_recipe(
             "recipeIngredient": ingredients,
             "recipeInstructions": instructions,
         }
+
+        # Add categories if provided
+        categories = recipe_data.get("categories", [])
+        if categories:
+            update_data["recipeCategory"] = categories
 
         await mealie_client.update_recipe(slug, update_data)
         logger.info("Updated recipe %s with ingredients and instructions", slug)

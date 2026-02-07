@@ -104,6 +104,47 @@ class MealieClient:
             resp.raise_for_status()
             return True
 
+    async def get_categories(self) -> list[dict]:
+        """Fetch all recipe categories from Mealie."""
+        async with httpx.AsyncClient() as client:
+            logger.debug("Fetching categories")
+            resp = await client.get(
+                f"{self.base_url}/api/organizers/categories",
+                headers=self._headers,
+                params={"perPage": -1, "orderBy": "name", "orderDirection": "asc"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("items", data) if isinstance(data, dict) else data
+
+    async def create_category(self, name: str) -> dict:
+        """Create a new recipe category in Mealie."""
+        async with httpx.AsyncClient() as client:
+            logger.info("Creating category in Mealie: %s", name)
+            resp = await client.post(
+                f"{self.base_url}/api/organizers/categories",
+                headers=self._headers,
+                json={"name": name},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    async def get_tags(self) -> list[dict]:
+        """Fetch all recipe tags from Mealie."""
+        async with httpx.AsyncClient() as client:
+            logger.debug("Fetching tags")
+            resp = await client.get(
+                f"{self.base_url}/api/organizers/tags",
+                headers=self._headers,
+                params={"perPage": -1, "orderBy": "name", "orderDirection": "asc"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("items", data) if isinstance(data, dict) else data
+
     async def health_check(self) -> bool:
         try:
             async with httpx.AsyncClient() as client:
