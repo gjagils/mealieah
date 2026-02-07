@@ -8,7 +8,18 @@
 {% else %}
 <div class="recipe-grid">
     {% for recipe in recipes %}
-    <a href="/recipe/{{ recipe.slug }}" class="recipe-card">
+    {% set stats = mapping_stats.get(recipe.slug) %}
+    {% if stats and stats.total > 0 %}
+        {% set unmapped = stats.total - stats.mapped - stats.skipped %}
+        {% if unmapped == 0 %}
+            {% set card_status = "ready" %}
+        {% else %}
+            {% set card_status = "needs-mapping" %}
+        {% endif %}
+    {% else %}
+        {% set card_status = "" %}
+    {% endif %}
+    <a href="/recipe/{{ recipe.slug }}" class="recipe-card {% if card_status %}recipe-card-{{ card_status }}{% endif %}">
         {% if recipe.id %}
         <img src="/proxy/recipe-image/{{ recipe.id }}" alt="{{ recipe.name }}" loading="lazy">
         {% else %}
@@ -16,7 +27,6 @@
         {% endif %}
         <div class="recipe-card-body">
             <h3>{{ recipe.name }}</h3>
-            {% set stats = mapping_stats.get(recipe.slug) %}
             {% if stats %}
             <div class="mapping-status">
                 {% if stats.mapped > 0 %}
@@ -25,7 +35,6 @@
                 {% if stats.skipped > 0 %}
                 <span class="badge badge-skipped">{{ stats.skipped }} overgeslagen</span>
                 {% endif %}
-                {% set unmapped = stats.total - stats.mapped - stats.skipped %}
                 {% if unmapped > 0 %}
                 <span class="badge badge-unmapped">{{ unmapped }} open</span>
                 {% endif %}
