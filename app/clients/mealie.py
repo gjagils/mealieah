@@ -62,13 +62,34 @@ class MealieClient:
             return resp.json()
 
     async def update_recipe(self, slug: str, data: dict) -> dict:
-        """Update recipe fields in Mealie."""
+        """Update recipe fields in Mealie by merging into the full recipe object."""
         async with httpx.AsyncClient() as client:
+            # Fetch the full recipe first so we can merge our changes into it
+            logger.info("Fetching full recipe before update: %s", slug)
+            get_resp = await client.get(
+                f"{self.base_url}/api/recipes/{slug}",
+                headers=self._headers,
+                timeout=30,
+            )
+            if get_resp.status_code == 200:
+                full_recipe = get_resp.json()
+                # Strip server-computed fields that cause validation errors on write
+                for key in ("id", "dateAdded", "dateUpdated", "createdAt", "updatedAt",
+                            "extras", "comments", "rating"):
+                    full_recipe.pop(key, None)
+                # Merge our update data into the full recipe
+                full_recipe.update(data)
+                update_payload = full_recipe
+            else:
+                logger.warning("Could not fetch recipe %s (HTTP %s), using partial data",
+                               slug, get_resp.status_code)
+                update_payload = data
+
             logger.info("Updating recipe in Mealie: %s", slug)
             resp = await client.patch(
                 f"{self.base_url}/api/recipes/{slug}",
                 headers=self._headers,
-                json=data,
+                json=update_payload,
                 timeout=30,
             )
             if resp.status_code >= 400:
@@ -78,12 +99,17 @@ class MealieClient:
                 resp = await client.put(
                     f"{self.base_url}/api/recipes/{slug}",
                     headers=self._headers,
-                    json=data,
+                    json=update_payload,
                     timeout=30,
                 )
                 if resp.status_code >= 400:
-                    logger.error("Mealie PUT %s returned %s: %s", slug, resp.status_code, resp.text[:500])
-            resp.raise_for_status()
+                    body = resp.text[:500]
+                    logger.error("Mealie PUT %s returned %s: %s", slug, resp.status_code, body)
+                    raise httpx.HTTPStatusError(
+                        f"Mealie update failed (HTTP {resp.status_code}): {body}",
+                        request=resp.request,
+                        response=resp,
+                    )
             return resp.json()
 
     async def upload_recipe_image(self, slug: str, image_data: bytes, media_type: str) -> bool:

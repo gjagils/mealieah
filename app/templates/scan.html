@@ -138,15 +138,28 @@ function onFileSelected(input, slot) {
     if (!file) return;
     selectedFiles[slot] = file;
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        const slotEl = document.getElementById(`slot-${slot}`);
-        slotEl.querySelector('.photo-slot-empty').style.display = 'none';
-        const preview = slotEl.querySelector('.photo-slot-preview');
-        preview.style.display = 'block';
-        preview.querySelector('img').src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
+    const slotEl = document.getElementById(`slot-${slot}`);
+    slotEl.querySelector('.photo-slot-empty').style.display = 'none';
+    const preview = slotEl.querySelector('.photo-slot-preview');
+    preview.style.display = 'block';
+
+    // Server-side EXIF rotation for reliable preview
+    const photoForm = new FormData();
+    photoForm.append("image", file);
+    fetch("/api/scan/fix-photo", { method: "POST", body: photoForm })
+        .then(r => {
+            if (!r.ok) throw new Error("Server returned " + r.status);
+            return r.blob();
+        })
+        .then(blob => {
+            preview.querySelector('img').src = URL.createObjectURL(blob);
+        })
+        .catch(() => {
+            // Fallback: client-side preview (CSS image-orientation handles EXIF)
+            const reader = new FileReader();
+            reader.onload = (ev) => { preview.querySelector('img').src = ev.target.result; };
+            reader.readAsDataURL(file);
+        });
     updateScanButton();
 }
 
@@ -218,18 +231,21 @@ function showPreview(recipe) {
     document.getElementById("recipe-ingredients").value = (recipe.ingredients || []).join("\n");
     document.getElementById("recipe-instructions").value = (recipe.instructions || []).join("\n");
 
-    // Show food photo preview (server-side rotated for correct orientation)
+    // Show food photo preview (server-side EXIF rotated for correct orientation)
     if (foodPhotoFile) {
         const photoForm = new FormData();
         photoForm.append("image", foodPhotoFile);
         fetch("/api/scan/fix-photo", { method: "POST", body: photoForm })
-            .then(r => r.blob())
+            .then(r => {
+                if (!r.ok) throw new Error("Server returned " + r.status);
+                return r.blob();
+            })
             .then(blob => {
                 document.getElementById("food-photo-img").src = URL.createObjectURL(blob);
                 document.getElementById("food-photo-preview").style.display = "block";
             })
             .catch(() => {
-                // Fallback to client-side preview
+                // Fallback: use client-side preview with CSS image-orientation
                 const reader = new FileReader();
                 reader.onload = (ev) => {
                     document.getElementById("food-photo-img").src = ev.target.result;

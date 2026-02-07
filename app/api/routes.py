@@ -602,10 +602,10 @@ async def save_scanned_recipe(
             else:
                 ingredient = {
                     "referenceId": str(uuid.uuid4()),
-                    "quantity": 0,
+                    "quantity": None,
                     "unit": None,
-                    "food": None,
-                    "note": ing,
+                    "food": {"name": ing.strip()},
+                    "note": "",
                     "originalText": ing,
                     "display": ing,
                 }
@@ -645,6 +645,12 @@ async def save_scanned_recipe(
                 logger.warning("Failed to upload recipe image: %s", img_err)
 
         return {"ok": True, "slug": slug}
+    except httpx.HTTPStatusError as e:
+        body = e.response.text[:300] if e.response else ""
+        logger.error("Mealie API error saving recipe: %s — %s", e, body)
+        return JSONResponse(
+            {"ok": False, "error": f"Mealie fout (HTTP {e.response.status_code}): {body}"}, status_code=500
+        )
     except Exception as e:
         logger.error("Failed to save recipe to Mealie: %s", e)
         return JSONResponse(
