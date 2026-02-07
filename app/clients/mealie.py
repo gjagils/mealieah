@@ -62,56 +62,27 @@ class MealieClient:
             return resp.json()
 
     async def update_recipe(self, slug: str, data: dict) -> dict:
-        """Update recipe fields in Mealie using safe GET-merge-PATCH approach."""
-        # Fields safe to read from GET and send back via PATCH
-        SAFE_FIELDS = {
-            "name", "description", "recipeYield", "totalTime", "prepTime",
-            "performTime", "recipeCategory", "tags", "tools", "nutrition",
-            "recipeIngredient", "recipeInstructions", "settings", "notes",
-            "orgURL", "slug",
-        }
-        async with httpx.AsyncClient() as client:
-            # Fetch recipe to use as base, keeping only safe fields
-            logger.info("Fetching recipe before update: %s", slug)
-            get_resp = await client.get(
-                f"{self.base_url}/api/recipes/{slug}",
-                headers=self._headers,
-                timeout=30,
-            )
-            if get_resp.status_code == 200:
-                full_recipe = get_resp.json()
-                update_payload = {k: v for k, v in full_recipe.items() if k in SAFE_FIELDS}
-                update_payload.update(data)
-            else:
-                logger.warning("Could not fetch recipe %s (HTTP %s), using data as-is",
-                               slug, get_resp.status_code)
-                update_payload = data
+        """Update recipe fields in Mealie via PATCH.
 
-            logger.info("Updating recipe in Mealie: %s", slug)
+        Sends only the provided fields — no GET-merge step needed for PATCH.
+        """
+        async with httpx.AsyncClient() as client:
+            logger.info("Updating recipe in Mealie: %s (fields: %s)",
+                        slug, list(data.keys()))
             resp = await client.patch(
                 f"{self.base_url}/api/recipes/{slug}",
                 headers=self._headers,
-                json=update_payload,
+                json=data,
                 timeout=30,
             )
             if resp.status_code >= 400:
                 body = resp.text[:500]
                 logger.error("Mealie PATCH %s returned %s: %s", slug, resp.status_code, body)
-                # Try PUT as fallback
-                resp = await client.put(
-                    f"{self.base_url}/api/recipes/{slug}",
-                    headers=self._headers,
-                    json=update_payload,
-                    timeout=30,
+                raise httpx.HTTPStatusError(
+                    f"Mealie update failed (HTTP {resp.status_code}): {body}",
+                    request=resp.request,
+                    response=resp,
                 )
-                if resp.status_code >= 400:
-                    body = resp.text[:500]
-                    logger.error("Mealie PUT %s returned %s: %s", slug, resp.status_code, body)
-                    raise httpx.HTTPStatusError(
-                        f"Mealie update failed (HTTP {resp.status_code}): {body}",
-                        request=resp.request,
-                        response=resp,
-                    )
             return resp.json()
 
     async def upload_recipe_image(self, slug: str, image_data: bytes, media_type: str) -> bool:

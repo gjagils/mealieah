@@ -593,43 +593,22 @@ async def save_scanned_recipe(
         logger.info("Created recipe in Mealie: %s", slug)
 
         # Step 2: Update with ingredients and instructions
-        import re
-
+        # Use simple note-based format for ingredients.
+        # Mealie's food/unit objects require IDs of existing database entries;
+        # sending just {"name": "..."} causes ValueError. Instead, put the full
+        # ingredient text in the "note" field — Mealie's ingredient parser can
+        # be used later to split into quantity/unit/food.
         ingredients = []
         for ing in recipe_data.get("ingredients", []):
-            # Try to parse "250g kipfilet" → quantity=250, unit=g, food=kipfilet
-            match = re.match(
-                r"^([\d.,/½¼¾⅓⅔]+)\s*(g|kg|ml|l|cl|dl|el|tl|eetlepels?|theelepels?|stuks?|stuk|blikjes?|zakjes?|potjes?)?\s*(.+)$",
-                ing.strip(),
-                re.IGNORECASE,
-            )
-            if match:
-                qty_str = match.group(1).replace(",", ".").replace("½", "0.5").replace("¼", "0.25").replace("¾", "0.75")
-                try:
-                    qty = float(qty_str)
-                except ValueError:
-                    qty = None
-                unit_name = match.group(2) or ""
-                food_name = match.group(3).strip().rstrip(",.")
-                ingredient = {
-                    "referenceId": str(uuid.uuid4()),
-                    "quantity": qty,
-                    "unit": {"name": unit_name} if unit_name else None,
-                    "food": {"name": food_name},
-                    "note": "",
-                    "originalText": ing,
-                    "display": ing,
-                }
-            else:
-                ingredient = {
-                    "referenceId": str(uuid.uuid4()),
-                    "quantity": None,
-                    "unit": None,
-                    "food": {"name": ing.strip()},
-                    "note": "",
-                    "originalText": ing,
-                    "display": ing,
-                }
+            ingredient = {
+                "referenceId": str(uuid.uuid4()),
+                "quantity": 0,
+                "unit": None,
+                "food": None,
+                "note": ing.strip(),
+                "isFood": False,
+                "originalText": ing.strip(),
+            }
             ingredients.append(ingredient)
 
         instructions = [
