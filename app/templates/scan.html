@@ -145,6 +145,7 @@ function onFileSelected(input, slot) {
     const slotEl = document.getElementById(`slot-${slot}`);
     slotEl.querySelector('.photo-slot-empty').style.display = 'none';
     const preview = slotEl.querySelector('.photo-slot-preview');
+    preview.querySelector('img').src = '';
     preview.style.display = 'block';
 
     // Server-side EXIF rotation for reliable preview
@@ -362,6 +363,7 @@ function resetScan() {
     foodPhotoIndex = null;
     foodPhotoFile = null;
     foodPhotoRotation = 0;
+    document.getElementById("food-photo-img").src = '';
     document.getElementById("food-photo-preview").style.display = "none";
     document.getElementById("step-done").style.display = "none";
     document.getElementById("step-preview").style.display = "none";
