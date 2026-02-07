@@ -486,20 +486,27 @@ code {
 .category-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .chip {
     display: inline-block;
-    padding: 0.3rem 0.75rem;
+    padding: 0.4rem 0.85rem;
     border-radius: 16px;
-    border: 1px solid var(--border);
+    border: 2px solid var(--border);
     background: var(--surface);
     color: var(--text);
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     cursor: pointer;
     transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
 }
 .chip:hover { border-color: var(--primary); }
 .chip-selected {
-    background: var(--primary);
+    background: var(--green);
     color: #fff;
-    border-color: var(--primary);
+    border-color: var(--green);
+    font-weight: 600;
+}
+.chip-selected::before {
+    content: "\2713 ";
+}
 }
 
 @media (max-width: 480px) {
