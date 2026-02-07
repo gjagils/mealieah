@@ -7,7 +7,8 @@
     --primary: #00a0e2;
     --primary-dark: #0080b8;
     --green: #2d8a4e;
-    --orange: #e07b00;
+    --orange: #E58325;
+    --ah-blue: #2162A6;
     --red: #c0392b;
     --radius: 8px;
 }
@@ -31,15 +32,21 @@ nav {
 }
 
 nav .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     font-weight: 700;
     font-size: 1.25rem;
-    color: var(--primary);
     text-decoration: none;
 }
 
+.logo-icon { width: 28px; height: 28px; }
+.logo-mealie { color: var(--orange); }
+.logo-ah { color: var(--ah-blue); }
+
 .nav-links { display: flex; gap: 1.5rem; }
-.nav-links a { color: var(--text); text-decoration: none; font-size: 0.95rem; }
-.nav-links a:hover { color: var(--primary); }
+.nav-links a { color: var(--ah-blue); text-decoration: none; font-size: 0.95rem; font-weight: 500; }
+.nav-links a:hover { color: var(--orange); }
 
 main { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
 
