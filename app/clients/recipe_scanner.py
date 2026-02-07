@@ -72,9 +72,13 @@ Antwoord ALLEEN met valid JSON, geen tekst eromheen. Gebruik dit formaat:
 }
 
 Regels:
-- BELANGRIJK voor ingrediënten: schrijf ALTIJD de hoeveelheid en eenheid erbij, precies
-  zoals ze op de foto staan. Voorbeelden: "1½ stuks casarecce (210g)", "75g cherrytomaatjes",
-  "1 ui", "2 teentjes knoflook". Schrijf NOOIT alleen de naam zonder hoeveelheid.
+- BELANGRIJK voor ingrediënten: Gebruik ALTIJD de gedetailleerde ingrediëntenlijst met
+  exacte hoeveelheden (meestal op de achterkant/detailzijde van de kaart). Daar staat een
+  tabel of lijst met precieze hoeveelheden per ingredient (bijv. "1½ stuks", "75g", "¾ blikken").
+  Gebruik NOOIT de kleine pictogrammen/icoontjes op de voorkant (die tonen geen hoeveelheden).
+  Elk ingredient MOET een hoeveelheid en eenheid hebben. Schrijf NOOIT alleen de naam.
+  Voorbeelden: "1½ stuks casarecce (210g)", "¾ blikken cherrytomaatjes", "1½ aubergine",
+  "15g geraspte parmigiano reggiano", "75g ricotta".
 - BELANGRIJK voor porties/recipe_yield: Als er meerdere foto's zijn (bijv. voor- en
   achterkant van een receptenkaart), gebruik dan ALTIJD het aantal porties dat staat
   bij de gedetailleerde ingrediëntenlijst (meestal de achterkant). Dit is het juiste

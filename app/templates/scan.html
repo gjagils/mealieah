@@ -70,7 +70,10 @@
 <section class="scan-section" id="step-preview" style="display:none">
     <h2>2. Controleer het recept</h2>
     <div id="food-photo-preview" style="display:none; margin-bottom: 1rem;">
-        <img id="food-photo-img" style="max-height: 200px; border-radius: 8px; image-orientation: from-image;">
+        <div style="display: inline-block; position: relative;">
+            <img id="food-photo-img" style="max-height: 200px; border-radius: 8px;">
+            <button class="btn btn-sm" onclick="rotatePreviewPhoto()" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.6); color: #fff; border: none; border-radius: 50%; width: 32px; height: 32px; padding: 0; font-size: 1.1rem; cursor: pointer;" title="Draaien">&#8635;</button>
+        </div>
         <p class="muted" style="margin-top: 0.25rem;">Deze foto wordt als receptafbeelding gebruikt</p>
     </div>
     <div class="scan-form">
@@ -127,6 +130,7 @@ const mealieExternalUrl = "{{ mealie_external_url | default('', true) }}";
 const selectedFiles = [null, null, null, null];
 let foodPhotoIndex = null;
 let foodPhotoFile = null;
+let foodPhotoRotation = 0; // Track cumulative rotation in degrees
 
 function addPhoto(slot) {
     const el = document.querySelector(`#slot-${slot} input[type=file]`);
@@ -259,6 +263,29 @@ function showPreview(recipe) {
     document.getElementById("step-preview").style.display = "block";
 }
 
+async function rotatePreviewPhoto() {
+    if (!foodPhotoFile) return;
+    foodPhotoRotation = (foodPhotoRotation + 90) % 360;
+    const img = document.getElementById("food-photo-img");
+
+    // Send to server to rotate
+    const photoForm = new FormData();
+    photoForm.append("image", foodPhotoFile);
+    photoForm.append("degrees", foodPhotoRotation);
+    try {
+        const resp = await fetch("/api/scan/rotate-photo", { method: "POST", body: photoForm });
+        if (!resp.ok) throw new Error("Server error");
+        const blob = await resp.blob();
+        // Store rotated blob as new file for saving to Mealie
+        foodPhotoFile = new File([blob], "food-photo.jpg", { type: "image/jpeg" });
+        foodPhotoRotation = 0; // Reset since rotation is now baked into the file
+        img.src = URL.createObjectURL(blob);
+    } catch (e) {
+        // Fallback: CSS rotation
+        img.style.transform = `rotate(${foodPhotoRotation}deg)`;
+    }
+}
+
 function backToUpload() {
     document.getElementById("step-preview").style.display = "none";
     document.getElementById("step-upload").style.display = "block";
@@ -334,6 +361,7 @@ function resetScan() {
     }
     foodPhotoIndex = null;
     foodPhotoFile = null;
+    foodPhotoRotation = 0;
     document.getElementById("food-photo-preview").style.display = "none";
     document.getElementById("step-done").style.display = "none";
     document.getElementById("step-upload").style.display = "block";

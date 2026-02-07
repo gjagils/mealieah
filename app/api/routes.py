@@ -550,6 +550,24 @@ def _fix_image_for_mealie(image_data: bytes) -> tuple[bytes, str]:
     return buf.getvalue(), "image/jpeg"
 
 
+@router.post("/api/scan/rotate-photo")
+async def rotate_photo(image: UploadFile = File(...), degrees: int = Form(90)):
+    """Rotate a photo by given degrees clockwise and return JPEG."""
+    import io
+
+    from PIL import Image
+
+    data = await image.read()
+    img = Image.open(io.BytesIO(data))
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    # PIL rotate is counterclockwise, so negate for clockwise
+    img = img.rotate(-degrees, expand=True)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return Response(content=buf.getvalue(), media_type="image/jpeg")
+
+
 @router.post("/api/scan/save")
 async def save_scanned_recipe(
     recipe_json: str = Form(...),
