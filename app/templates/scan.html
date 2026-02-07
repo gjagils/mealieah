@@ -364,10 +364,14 @@ function resetScan() {
     foodPhotoRotation = 0;
     document.getElementById("food-photo-preview").style.display = "none";
     document.getElementById("step-done").style.display = "none";
+    document.getElementById("step-preview").style.display = "none";
     document.getElementById("step-upload").style.display = "block";
     document.getElementById("scan-btn").disabled = true;
     document.getElementById("scan-btn").textContent = "Recept herkennen";
     document.getElementById("scan-status").innerHTML = "";
+    document.getElementById("save-btn").disabled = false;
+    document.getElementById("save-btn").textContent = "Opslaan in Mealie";
+    document.getElementById("save-status").innerHTML = "";
 }
 </script>
 {% endblock %}
