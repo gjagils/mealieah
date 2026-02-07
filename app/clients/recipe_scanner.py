@@ -67,6 +67,12 @@ Antwoord ALLEEN met valid JSON, geen tekst eromheen. Gebruik dit formaat:
 
 Regels:
 - Schrijf ingrediënten zoals ze in het recept staan (met hoeveelheid en eenheid)
+- BELANGRIJK voor porties/recipe_yield: Als er meerdere foto's zijn (bijv. voor- en
+  achterkant van een receptenkaart), gebruik dan ALTIJD het aantal porties dat staat
+  bij de gedetailleerde ingrediëntenlijst (meestal de achterkant). Dit is het juiste
+  aantal. De voorkant van bijv. HelloFresh kaarten toont vaak een ander (kleiner)
+  aantal dat niet klopt met de hoeveelheden. Voorbeeld: voorkant zegt "2 personen"
+  maar de ingrediëntenlijst zegt "voor 3 personen" → gebruik "3 porties".
 - BELANGRIJK voor bereidingsstappen: behoud de originele stap-indeling van het recept.
   Als het recept genummerde stappen heeft (1, 2, 3...) of stappen met titels, gebruik
   dan dezelfde stappen. Eén stap kan meerdere zinnen bevatten. Maak NIET van elke zin
