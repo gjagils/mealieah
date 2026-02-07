@@ -12,14 +12,20 @@ MAX_IMAGE_BYTES = 3_900_000  # Claude API limit is 5MB on base64; base64 adds ~3
 
 
 def _resize_for_api(image_data: bytes, media_type: str) -> tuple[bytes, str]:
-    """Resize and compress image to fit within Claude's 5MB limit."""
-    if len(image_data) <= MAX_IMAGE_BYTES:
-        return image_data, media_type
-
+    """Resize and compress image to fit within Claude's 5MB limit.
+    Always applies EXIF rotation so Claude sees the image correctly oriented."""
     img = Image.open(io.BytesIO(image_data))
     img = ImageOps.exif_transpose(img)
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
+
+    # If already small enough, save as JPEG (strips EXIF, applies rotation)
+    if len(image_data) <= MAX_IMAGE_BYTES:
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        result = buf.getvalue()
+        if len(result) <= MAX_IMAGE_BYTES:
+            return result, "image/jpeg"
 
     # Progressively reduce size until under limit
     quality = 85
@@ -66,7 +72,9 @@ Antwoord ALLEEN met valid JSON, geen tekst eromheen. Gebruik dit formaat:
 }
 
 Regels:
-- Schrijf ingrediënten zoals ze in het recept staan (met hoeveelheid en eenheid)
+- BELANGRIJK voor ingrediënten: schrijf ALTIJD de hoeveelheid en eenheid erbij, precies
+  zoals ze op de foto staan. Voorbeelden: "1½ stuks casarecce (210g)", "75g cherrytomaatjes",
+  "1 ui", "2 teentjes knoflook". Schrijf NOOIT alleen de naam zonder hoeveelheid.
 - BELANGRIJK voor porties/recipe_yield: Als er meerdere foto's zijn (bijv. voor- en
   achterkant van een receptenkaart), gebruik dan ALTIJD het aantal porties dat staat
   bij de gedetailleerde ingrediëntenlijst (meestal de achterkant). Dit is het juiste

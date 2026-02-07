@@ -542,8 +542,11 @@ def _fix_image_for_mealie(image_data: bytes) -> tuple[bytes, str]:
         img = img.convert("RGB")
     # Resize to reasonable size for a recipe cover photo
     img.thumbnail((1600, 1600), Image.LANCZOS)
+    # Create clean image to strip all EXIF data (prevents browser double-rotation)
+    clean = Image.new("RGB", img.size)
+    clean.paste(img)
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
+    clean.save(buf, format="JPEG", quality=85)
     return buf.getvalue(), "image/jpeg"
 
 
