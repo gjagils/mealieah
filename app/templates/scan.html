@@ -301,6 +301,14 @@ function showPreview(recipe) {
             const img = document.createElement("img");
             item.appendChild(img);
 
+            // Rotate button (top-right)
+            const rotBtn = document.createElement("button");
+            rotBtn.className = "photo-rotate-btn";
+            rotBtn.innerHTML = "&#8634;";
+            rotBtn.title = "Draaien";
+            rotBtn.onclick = (e) => { e.stopPropagation(); rotatePhoto(i); };
+            item.appendChild(rotBtn);
+
             const label = document.createElement("span");
             label.className = "photo-label";
             label.textContent = i === headerPhotoIndex ? "Header" : "Referentie";
@@ -333,6 +341,27 @@ function selectHeaderPhoto(index) {
         el.classList.toggle("photo-header", i === index);
         el.querySelector(".photo-label").textContent = i === index ? "Header" : "Referentie";
     });
+}
+
+async function rotatePhoto(index) {
+    const file = scannedFiles[index];
+    if (!file) return;
+    const photoForm = new FormData();
+    photoForm.append("image", file);
+    photoForm.append("degrees", -90);  // Counter-clockwise
+    try {
+        const resp = await fetch("/api/scan/rotate-photo", { method: "POST", body: photoForm });
+        if (!resp.ok) throw new Error("Server error");
+        const blob = await resp.blob();
+        scannedFiles[index] = new File([blob], file.name || "photo.jpg", { type: "image/jpeg" });
+        // Update preview image
+        const items = document.querySelectorAll(".photo-select-item");
+        if (items[index]) {
+            items[index].querySelector("img").src = URL.createObjectURL(blob);
+        }
+    } catch (e) {
+        console.error("Rotate failed:", e);
+    }
 }
 
 function backToUpload() {
