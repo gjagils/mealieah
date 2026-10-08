@@ -2,6 +2,8 @@ services:
   ahcommunicator:
     build: .
     container_name: AHRecepten
+    # Docker-netwerkpool op de NAS is vol: gebruik het standaard bridge-netwerk
+    network_mode: bridge
     ports:
       - 9927:8000
     environment:
