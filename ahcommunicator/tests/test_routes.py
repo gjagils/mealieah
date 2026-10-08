@@ -186,3 +186,29 @@ def test_pin_protects_everything(db, monkeypatch):
     ok = client.post("/login", data={"pin": "1234"}, follow_redirects=False)
     assert ok.status_code == 303 and "session" in ok.cookies
     assert client.get("/").status_code == 200
+
+
+def test_json_api_for_ios_app(db):
+    from datetime import date
+
+    r = _recipe(db, "Pasta", [_ing("pasta", 1)])
+    client = TestClient(app)
+    listing = client.get("/api/recipes?q=pas").json()["recipes"]
+    assert [x["name"] for x in listing] == ["Pasta"] and client.get("/api/recipes?q=zzz").json()["recipes"] == []
+    detail = client.get(f"/api/recipes/{r.id}").json()
+    assert detail["instructions"] == ["Kook."] and detail["ingredients"][0]["product"] == "p1"
+    assert client.get("/api/recipes/999").status_code == 404
+    week = client.get("/api/week").json()
+    assert len(week["days"]) == 7 and week["week"] == str(routes.monday_of(date.today()))
+
+
+def test_app_login_and_bearer_with_pin(db, monkeypatch):
+    import app.api.json_api as json_api
+
+    for module in (json_api.settings, routes.settings):
+        monkeypatch.setattr(module, "app_pin", "1234")
+    client = TestClient(app)
+    assert client.get("/api/recipes").status_code == 401
+    assert client.post("/api/login", json={"pin": "0000"}).status_code == 401
+    token = client.post("/api/login", json={"pin": "1234"}).json()["token"]
+    assert client.get("/api/recipes", headers={"Authorization": f"Bearer {token}"}).status_code == 200
