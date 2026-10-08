@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Weekmenu - AH Recepten{% endblock %}
+{% block content %}
+<h1>Weekmenu</h1>
+<p class="muted" style="margin-bottom: 1rem;">Kies per dag een of meer recepten. Alle ingrediënten gaan samen op je AH-lijstje; dubbele producten worden opgeteld.</p>
+{% if not recipes %}
+<p>Nog geen recepten. <a href="/">Voeg er eerst een toe.</a></p>
+{% else %}
+<section class="settings-section">
+    {% for idx, name in days %}
+    <div style="margin-bottom: 0.75rem;">
+        <strong>{{ name }}</strong>
+        <div class="day" data-day="{{ idx }}">
+            <select class="day-select" multiple size="3" style="width:100%;max-width:420px;">
+                {% for r in recipes %}
+                <option value="{{ r.id }}" {% if r.id in by_day.get(idx, []) %}selected{% endif %}>{{ r.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    {% endfor %}
+    <button class="btn btn-primary" id="cart-btn" {% if not has_token %}disabled title="Koppel eerst AH in Instellingen"{% endif %}>Alles op AH-lijstje</button>
+    <span id="status" class="muted" style="margin-left: 0.5rem;"></span>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const statusEl = document.getElementById("status");
+function say(msg, bad) { statusEl.textContent = msg; statusEl.style.color = bad ? "var(--red)" : ""; }
+function collect() {
+    const days = {};
+    document.querySelectorAll(".day").forEach(d => {
+        days[d.dataset.day] = [...d.querySelector("select").selectedOptions].map(o => parseInt(o.value));
+    });
+    return days;
+}
+async function save() {
+    await fetch("/api/weekmenu", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({days: collect()})});
+}
+document.querySelectorAll(".day-select").forEach(s => s.addEventListener("change", save));
+const btn = document.getElementById("cart-btn");
+if (btn) btn.onclick = async () => {
+    const all = [...new Set(Object.values(collect()).flat())];
+    if (!all.length) { say("Kies eerst recepten", true); return; }
+    say("Bezig, producten zoeken en toevoegen...");
+    const r = await (await fetch("/api/cart/fill", {
+        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({recipe_ids: all}),
+    })).json();
+    if (r.ok) say(`${r.items_added} producten op je AH-lijstje` + (r.unmatched.length ? ` — niet gevonden: ${r.unmatched.join(", ")}` : ""));
+    else say(r.error, true);
+};
+</script>
+{% endblock %}

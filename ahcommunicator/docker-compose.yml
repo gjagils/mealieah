@@ -1,0 +1,12 @@
+services:
+  ahcommunicator:
+    build: .
+    container_name: AHRecepten
+    ports:
+      - 9927:8000
+    environment:
+      TZ: Europe/Amsterdam
+      ANTHROPIC_API_KEY: ""
+    volumes:
+      - ./data:/app/data
+    restart: on-failure:5

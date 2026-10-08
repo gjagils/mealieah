@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Recepten</h1>
+
+<section class="settings-section">
+    <h2>Nieuw recept</h2>
+    {% if not has_api_key %}
+    <p style="color: var(--red);">ANTHROPIC_API_KEY is niet ingesteld; importeren werkt pas daarna.</p>
+    {% endif %}
+    <form id="import-form">
+        <div class="form-group">
+            <input type="url" name="url" class="form-input" placeholder="Link naar een recept (https://...)">
+        </div>
+        <p class="muted" style="margin: 0.5rem 0;">of plak de tekst van een recept</p>
+        <textarea name="text" class="form-input" rows="4" style="width:100%" placeholder="Ingrediënten en bereiding..."></textarea>
+        <p class="muted" style="margin: 0.5rem 0;">of kies een of meer foto's (bijv. voor- en achterkant van een receptkaart)</p>
+        <input type="file" name="images" accept="image/*" multiple>
+        <div style="margin-top: 1rem;">
+            <button type="submit" class="btn btn-primary" id="import-btn">Recept omzetten</button>
+            <span id="import-status" class="muted" style="margin-left: 0.75rem;"></span>
+        </div>
+    </form>
+</section>
+
+{% if recipes %}
+<div class="recipe-grid">
+    {% for r in recipes %}
+    <a href="/recipe/{{ r.id }}" class="recipe-card" style="text-decoration:none;color:inherit;">
+        {% if r.image_url %}<img src="{{ r.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+        {% else %}<div class="recipe-card-placeholder"></div>{% endif %}
+        <div class="recipe-card-body">
+            <h3>{{ r.name }}</h3>
+            <p>{{ r.servings }}{% if r.servings and r.total_time %} · {% endif %}{{ r.total_time }}</p>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<p class="muted">Nog geen recepten. Zet hierboven je eerste recept om.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("import-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("import-btn");
+    const status = document.getElementById("import-status");
+    btn.disabled = true;
+    status.style.color = "";
+    status.textContent = "Bezig met omzetten, even geduld...";
+    try {
+        const resp = await fetch("/api/import", {method: "POST", body: new FormData(e.target)});
+        const data = await resp.json();
+        if (data.ok) { location.href = "/recipe/" + data.id; return; }
+        status.style.color = "var(--red)";
+        status.textContent = data.error || "Mislukt";
+    } catch (err) {
+        status.style.color = "var(--red)";
+        status.textContent = "Mislukt: " + err;
+    }
+    btn.disabled = false;
+});
+</script>
+{% endblock %}

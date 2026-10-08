@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.name }} - AH Recepten{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="/">Recepten</a> / {{ recipe.name }}</p>
+<h1>{{ recipe.name }}</h1>
+{% if recipe.image_url %}<img src="{{ recipe.image_url }}" alt="" referrerpolicy="no-referrer" style="max-width:100%;max-height:300px;border-radius:8px;margin-bottom:1rem;">{% endif %}
+<p class="muted">{{ recipe.servings }}{% if recipe.servings and recipe.total_time %} · {% endif %}{{ recipe.total_time }}
+    {% if recipe.source_url %} · <a href="{{ recipe.source_url }}" target="_blank" rel="noopener">bron</a>{% endif %}</p>
+{% if recipe.description %}<p style="margin: 0.5rem 0 1rem;">{{ recipe.description }}</p>{% endif %}
+
+<section class="settings-section">
+    <h2>Ingrediënten</h2>
+    <div style="margin-bottom: 0.75rem;">
+        <button class="btn" id="automatch-btn">Koppel aan AH-producten</button>
+        <button class="btn btn-primary" id="cart-btn" {% if not has_token %}disabled title="Koppel eerst AH in Instellingen"{% endif %}>Zet op AH-lijstje</button>
+        <span id="status" class="muted" style="margin-left: 0.5rem;"></span>
+    </div>
+    <table class="settings-table" id="ingredients"></table>
+</section>
+
+<section class="settings-section">
+    <h2>Bereiding</h2>
+    <ol style="padding-left: 1.25rem;">
+        {% for step in recipe.instructions %}<li style="margin-bottom: 0.5rem;">{{ step }}</li>{% endfor %}
+    </ol>
+</section>
+
+<form method="post" action="/recipe/{{ recipe.id }}/delete" onsubmit="return confirm('Recept verwijderen?')">
+    <button class="btn btn-danger btn-sm">Verwijderen</button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const RECIPE_ID = {{ recipe.id }};
+let ingredients = {{ ingredients|tojson }};
+const table = document.getElementById("ingredients");
+const statusEl = document.getElementById("status");
+
+function say(msg, bad) { statusEl.textContent = msg; statusEl.style.color = bad ? "var(--red)" : ""; }
+
+async function save() {
+    await fetch(`/api/recipe/${RECIPE_ID}/ingredients`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ingredients}),
+    });
+}
+
+function render() {
+    table.innerHTML = "";
+    ingredients.forEach((ing, i) => {
+        const tr = document.createElement("tr");
+        const p = ing.product;
+        const include = document.createElement("td");
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.checked = !ing.skip;
+        cb.onchange = () => { ing.skip = !cb.checked; save(); render(); };
+        include.appendChild(cb);
+
+        const text = document.createElement("td");
+        text.textContent = ing.text;
+        if (ing.skip) text.style.opacity = "0.5";
+
+        const prod = document.createElement("td");
+        if (!ing.skip) {
+            const label = document.createElement("span");
+            label.textContent = p ? `${p.name} (${p.unit_size || ""}) € ${p.price}` : "geen product";
+            if (!p) label.className = "muted";
+            const search = document.createElement("input");
+            search.className = "form-input"; search.value = ing.search || "";
+            search.style.cssText = "width:9rem;margin:0 0.4rem;font-size:0.85rem;";
+            const btn = document.createElement("button");
+            btn.className = "btn btn-sm"; btn.textContent = "Zoek";
+            const results = document.createElement("select");
+            results.style.display = "none";
+            btn.onclick = async () => {
+                ing.search = search.value; save();
+                const r = await (await fetch("/api/ah/search?q=" + encodeURIComponent(search.value))).json();
+                results.innerHTML = "";
+                (r.products || []).forEach((prd, k) => {
+                    const o = document.createElement("option");
+                    o.value = k; o.textContent = `${prd.name} (${prd.unit_size || ""}) € ${prd.price}`;
+                    results.appendChild(o);
+                });
+                results.style.display = r.products && r.products.length ? "" : "none";
+                results.onchange = () => { ing.product = r.products[results.value]; save(); render(); };
+                if (r.products && r.products.length) { ing.product = r.products[0]; save(); label.textContent = results.options[0].textContent; }
+            };
+            prod.append(label, search, btn, results);
+        }
+
+        const qty = document.createElement("td");
+        if (!ing.skip) {
+            const q = document.createElement("input");
+            q.type = "number"; q.min = 1; q.value = ing.quantity || 1; q.style.width = "3.5rem";
+            q.onchange = () => { ing.quantity = Math.max(1, parseInt(q.value) || 1); save(); };
+            qty.appendChild(q);
+        }
+        tr.append(include, text, prod, qty);
+        table.appendChild(tr);
+    });
+}
+
+document.getElementById("automatch-btn").onclick = async () => {
+    say("Producten zoeken...");
+    const r = await (await fetch(`/api/recipe/${RECIPE_ID}/automatch`, {method: "POST"})).json();
+    ingredients = r.ingredients; render();
+    say(`${r.matched} producten gekoppeld`);
+};
+
+document.getElementById("cart-btn").onclick = async () => {
+    say("Bezig...");
+    const r = await (await fetch("/api/cart/fill", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({recipe_ids: [RECIPE_ID]}),
+    })).json();
+    if (r.ok) {
+        say(`${r.items_added} producten op je AH-lijstje` + (r.unmatched.length ? ` — niet gevonden: ${r.unmatched.join(", ")}` : ""));
+    } else say(r.error, true);
+};
+
+render();
+</script>
+{% endblock %}

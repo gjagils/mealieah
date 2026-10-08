@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AH Recepten{% endblock %}</title>
+    <link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body>
+    <nav>
+        <a href="/" class="logo">AH Recepten</a>
+        <div class="nav-links">
+            <a href="/">Recepten</a>
+            <a href="/weekmenu">Weekmenu</a>
+            <a href="/settings">Instellingen</a>
+        </div>
+    </nav>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
