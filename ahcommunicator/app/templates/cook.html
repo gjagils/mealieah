@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}{{ recipe.name }} - koken{% endblock %}
+{% block content %}
+<p class="breadcrumb"><a href="/recipe/{{ recipe.id }}">&larr; Recept</a></p>
+<h1>{{ recipe.name }}</h1>
+<p class="muted">{{ recipe.servings }}{% if recipe.servings and recipe.total_time %} · {% endif %}{{ recipe.total_time }}</p>
+{% if recipe.gf_mode != "none" %}
+<div class="status-box"><span class="chip">glutenvrij voor 1 persoon</span>
+    {% if recipe.gf_note %}<p style="margin-top: 0.4rem;">{{ recipe.gf_note }}</p>{% endif %}</div>
+{% endif %}
+<h2>Ingrediënten</h2>
+<ul class="cook-ingredients" style="padding:0">
+    {% for ing in recipe.ingredients %}
+    <li><label><input type="checkbox"> {{ ing.text }}
+        {% if ing.gluten and ing.gf_search and recipe.gf_mode != "none" %}
+        <span class="chip chip-warn">{{ "i.p.v. gluten: " if recipe.gf_mode == "replace" else "extra voor 1: " }}{{ ing.gf_search }}</span>{% endif %}
+    </label></li>
+    {% endfor %}
+</ul>
+<h2 style="margin-top: 1rem;">Bereiding</h2>
+<ol class="cook-steps" style="padding-left: 1.25rem;">
+    {% for step in recipe.instructions %}<li onclick="this.classList.toggle('done')">{{ step }}</li>{% endfor %}
+</ol>
+{% endblock %}
+{% block scripts %}
+<script>
+// Scherm aan laten tijdens het koken (iOS 16.4+)
+if ("wakeLock" in navigator) navigator.wakeLock.request("screen").catch(() => {});
+</script>
+{% endblock %}

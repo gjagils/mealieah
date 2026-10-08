@@ -16,10 +16,17 @@ class Recipe(Base):
     servings: Mapped[str] = mapped_column(String(100), default="")
     total_time: Mapped[str] = mapped_column(String(100), default="")
     source_url: Mapped[str] = mapped_column(Text, default="")
+    # id of the recipe in Allerhande when added from there (prevents duplicates)
+    ah_recipe_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     # slug of the recipe in Mealie when imported from there (prevents duplicates)
     mealie_slug: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
     image_url: Mapped[str] = mapped_column(Text, default="")
-    # JSON list of {"text", "search", "skip", "quantity", "product": {...}|None}
+    # Glutenvrij voor minstens 1 persoon: "none" | "extra" (extra glutenvrij product erbij)
+    # | "replace" (ingrediënt voor iedereen vervangen)
+    gf_mode: Mapped[str] = mapped_column(String(10), default="none")
+    gf_note: Mapped[str] = mapped_column(Text, default="")
+    # JSON list of {"text", "search", "skip", "quantity", "product": {...}|None,
+    #               "gluten": bool, "gf_search": str, "gf_product": {...}|None}
     ingredients_json: Mapped[str] = mapped_column(Text, default="[]")
     # JSON list of strings
     instructions_json: Mapped[str] = mapped_column(Text, default="[]")
@@ -42,12 +49,26 @@ class Recipe(Base):
         self.instructions_json = json.dumps(value, ensure_ascii=False)
 
 
-class WeekmenuEntry(Base):
-    __tablename__ = "weekmenu_entries"
+class PlanEntry(Base):
+    """A recipe planned on a specific date."""
+
+    __tablename__ = "plan_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    day: Mapped[int] = mapped_column(Integer)  # 0 = maandag ... 6 = zondag
+    date: Mapped[str] = mapped_column(String(10), index=True)  # YYYY-MM-DD
     recipe_id: Mapped[int] = mapped_column(Integer, index=True)
+
+
+class CartPush(Base):
+    """What we already put on the AH shopping list for a given week."""
+
+    __tablename__ = "cart_pushes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    week_start: Mapped[str] = mapped_column(String(10), index=True)
+    product_id: Mapped[int] = mapped_column(Integer)
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    name: Mapped[str] = mapped_column(String(500), default="")
 
 
 class AppSetting(Base):

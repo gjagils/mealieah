@@ -205,3 +205,46 @@ async def extract_recipe(
         messages=[{"role": "user", "content": content}],
     )
     return normalize_recipe(_parse_json(message.content[0].text))
+
+
+GF_PROMPT = """Je helpt een gezin in Nederland dat elke maaltijd glutenvrij wil kunnen eten voor minstens 1 persoon.
+Je krijgt een recept met genummerde ingrediënten. Beoordeel welke ingrediënten gluten bevatten
+(tarwe, rogge, gerst, spelt, couscous, pasta, brood, wraps, bloem, paneermeel, sojasaus, bouillonblokjes, enz.).
+Antwoord ALLEEN met valid JSON:
+{
+  "mode": "extra" of "replace",
+  "note": "1-2 zinnen uitleg, bijv. 'Maak voor 1 persoon aparte glutenvrije pasta.'",
+  "ingredients": [{"i": 0, "gluten": true, "gf_search": "glutenvrije wraps"}]
+}
+Regels:
+- Neem alleen ingrediënten op die gluten bevatten.
+- "gf_search": korte Nederlandse zoekterm voor een glutenvrij alternatief bij Albert Heijn.
+- "extra": het glutenvrije product wordt er voor 1 persoon bij gekocht (typisch voor pasta, wraps, brood).
+- "replace": het ingrediënt wordt voor iedereen vervangen (typisch voor sojasaus -> tamari, bloem, bouillon),
+  omdat dat makkelijk is en niemand het merkt. Kies "replace" alleen als ALLE gluten-ingrediënten zo vervangbaar zijn.
+- Geen ingrediënt met gluten: geef een lege "ingredients" lijst.
+"""
+
+
+def normalize_gf(raw: dict, count: int) -> dict:
+    mode = raw.get("mode") if raw.get("mode") in ("extra", "replace") else "extra"
+    items = {}
+    for item in raw.get("ingredients", []):
+        i = item.get("i")
+        if isinstance(i, int) and 0 <= i < count and item.get("gluten", True):
+            items[i] = str(item.get("gf_search", "")).strip()
+    return {"mode": mode, "note": str(raw.get("note", "")).strip(), "items": items}
+
+
+async def suggest_gluten_free(name: str, ingredient_texts: list[str]) -> dict:
+    if not settings.anthropic_api_key:
+        raise ValueError("ANTHROPIC_API_KEY is niet ingesteld.")
+    listing = "\n".join(f"{i}: {t}" for i, t in enumerate(ingredient_texts))
+    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+    message = await client.messages.create(
+        model=settings.anthropic_model,
+        max_tokens=2000,
+        system=GF_PROMPT,
+        messages=[{"role": "user", "content": f"Recept: {name}\n\nIngrediënten:\n{listing}"}],
+    )
+    return normalize_gf(_parse_json(message.content[0].text), len(ingredient_texts))

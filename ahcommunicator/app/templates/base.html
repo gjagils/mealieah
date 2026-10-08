@@ -2,22 +2,37 @@
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>{% block title %}AH Recepten{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css?v=1">
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/static/icons/icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Recepten">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="theme-color" content="#00a0e2">
+    <link rel="stylesheet" href="/static/style.css?v=2">
 </head>
 <body>
-    <nav>
+    <nav class="topbar">
         <a href="/" class="logo">AH Recepten</a>
-        <div class="nav-links">
-            <a href="/">Recepten</a>
-            <a href="/weekmenu">Weekmenu</a>
-            <a href="/settings">Instellingen</a>
-        </div>
     </nav>
     <main>
         {% block content %}{% endblock %}
     </main>
+    <div class="tabbar">
+        <a href="/">Vandaag</a>
+        <a href="/recepten">Recepten</a>
+        <a href="/weekmenu">Weekmenu</a>
+        <a href="/allerhande">AH</a>
+        <a href="/settings">Meer</a>
+    </div>
+    <script>
+        document.querySelectorAll(".tabbar a").forEach(a => {
+            const p = location.pathname;
+            if (a.getAttribute("href") === "/" ? p === "/" : p.startsWith(a.getAttribute("href"))) a.classList.add("active");
+        });
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

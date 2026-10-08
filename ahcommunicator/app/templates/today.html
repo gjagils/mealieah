@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Deze week</h1>
+{% for d in days %}
+<div class="day-card {% if d.today %}today{% endif %}">
+    <h3>{{ d.label }}{% if d.today %} · vandaag{% endif %}</h3>
+    {% for r in d.recipes %}
+    <a class="day-recipe" href="/recipe/{{ r.id }}/koken">
+        {% if r.image_url %}<img src="{{ r.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% else %}<div class="thumb"></div>{% endif %}
+        <span>{{ r.name }}</span>
+        {% if r.gf_mode != "none" %}<span class="chip" style="flex:none">glutenvrij</span>{% endif %}
+    </a>
+    {% else %}
+    <p class="muted">Niets gepland</p>
+    {% endfor %}
+</div>
+{% endfor %}
+<p class="muted">Plannen? Ga naar <a href="/weekmenu">Weekmenu</a>.</p>
+{% endblock %}

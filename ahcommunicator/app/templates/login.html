@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Inloggen - AH Recepten{% endblock %}
+{% block content %}
+<h1>Inloggen</h1>
+<form method="post" action="/login" class="settings-section">
+    <p class="muted" style="margin-bottom: 0.75rem;">Vul de pincode van het gezin in.</p>
+    <div class="form-group">
+        <input type="password" name="pin" inputmode="numeric" autocomplete="current-password" class="form-input" autofocus>
+        <button class="btn btn-primary" type="submit">Inloggen</button>
+    </div>
+    {% if error %}<p style="color: var(--red); margin-top: 0.5rem;">{{ error }}</p>{% endif %}
+</form>
+{% endblock %}

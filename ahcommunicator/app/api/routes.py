@@ -1,6 +1,8 @@
 import asyncio
+import hmac
 import io
 import os
+from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -12,13 +14,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.clients.ah import ah_client
-from app.clients.extractor import extract_recipe, fetch_url
+from app.clients.ah import ah_client, convert_ah_recipe
+from app.clients.extractor import extract_recipe, fetch_url, suggest_gluten_free
 from app.clients.mealie import MealieClient, convert_recipe
 from app.config import settings
 from app.database import get_db
 from app.logging_config import logger
-from app.models import AppSetting, Recipe, WeekmenuEntry
+from app.models import AppSetting, CartPush, PlanEntry, Recipe
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -26,6 +28,22 @@ templates = Jinja2Templates(directory="app/templates")
 IMAGE_DIR = os.path.join("data", "images")
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 DAYS = ["Maandag", "Dinsdag", "Woensdag", "Donderdag", "Vrijdag", "Zaterdag", "Zondag"]
+MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+
+
+def monday_of(d: date) -> date:
+    return d - timedelta(days=d.weekday())
+
+
+def parse_week(week: str | None) -> date:
+    try:
+        return monday_of(date.fromisoformat(week)) if week else monday_of(date.today())
+    except ValueError:
+        return monday_of(date.today())
+
+
+def day_label(d: date) -> str:
+    return f"{DAYS[d.weekday()]} {d.day} {MONTHS[d.month - 1]}"
 
 
 def _get_setting(db: Session, key: str) -> str:
@@ -67,11 +85,46 @@ def _save_food_photo(recipe_id: int, data: bytes) -> bool:
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request, db: Session = Depends(get_db)):
-    recipes = db.execute(select(Recipe).order_by(Recipe.created_at.desc())).scalars().all()
+async def today_page(request: Request, db: Session = Depends(get_db)):
+    """Gezinsweergave: wat staat er vandaag en deze week op het menu."""
+    monday = monday_of(date.today())
+    entries = db.execute(
+        select(PlanEntry).where(PlanEntry.date >= str(monday), PlanEntry.date <= str(monday + timedelta(days=6)))
+    ).scalars().all()
+    recipes = {r.id: r for r in db.execute(select(Recipe).where(Recipe.id.in_({e.recipe_id for e in entries}))).scalars()}
+    days = []
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        planned = [recipes[e.recipe_id] for e in entries if e.date == str(d) and e.recipe_id in recipes]
+        days.append({"label": day_label(d), "recipes": planned, "today": d == date.today()})
+    return templates.TemplateResponse(request, "today.html", {"days": days})
+
+
+@router.get("/recepten", response_class=HTMLResponse)
+async def recipes_page(request: Request, db: Session = Depends(get_db)):
+    recipes = db.execute(select(Recipe).order_by(Recipe.name)).scalars().all()
     return templates.TemplateResponse(
-        request, "recipes.html", {"recipes": recipes, "has_api_key": bool(settings.anthropic_api_key)},
+        request, "recipes.html",
+        {"recipes": recipes, "has_api_key": bool(settings.anthropic_api_key)},
     )
+
+
+@router.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse(request, "login.html", {"error": ""})
+
+
+@router.post("/login")
+async def login(request: Request, pin: str = Form("")):
+    from app.main import session_token
+
+    if settings.app_pin and hmac.compare_digest(pin.strip(), settings.app_pin):
+        resp = RedirectResponse("/", status_code=303)
+        resp.set_cookie("session", session_token(), max_age=60 * 60 * 24 * 365,
+                        httponly=True, samesite="lax")
+        return resp
+    await asyncio.sleep(1)  # slow down guessing
+    return templates.TemplateResponse(request, "login.html", {"error": "Pincode klopt niet."}, status_code=401)
 
 
 @router.get("/recipe/{recipe_id}", response_class=HTMLResponse)
@@ -83,6 +136,51 @@ async def recipe_detail(request: Request, recipe_id: int, db: Session = Depends(
             "has_token": bool(_get_setting(db, "ah_refresh_token") or _get_setting(db, "ah_user_token")),
         },
     )
+
+
+@router.get("/recipe/{recipe_id}/koken", response_class=HTMLResponse)
+async def cook_mode(request: Request, recipe_id: int, db: Session = Depends(get_db)):
+    recipe = _get_recipe(db, recipe_id)
+    return templates.TemplateResponse(request, "cook.html", {"recipe": recipe})
+
+
+class GlutenPayload(BaseModel):
+    gf_mode: str
+    gf_note: str = ""
+    ingredients: list[dict]
+
+
+@router.post("/api/recipe/{recipe_id}/gluten")
+async def save_gluten(recipe_id: int, payload: GlutenPayload, db: Session = Depends(get_db)):
+    if payload.gf_mode not in ("none", "extra", "replace"):
+        return JSONResponse({"ok": False, "error": "Ongeldige glutenvrij-modus"}, status_code=400)
+    recipe = _get_recipe(db, recipe_id)
+    recipe.gf_mode = payload.gf_mode
+    recipe.gf_note = payload.gf_note
+    recipe.ingredients = payload.ingredients
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/api/recipe/{recipe_id}/gluten-suggest")
+async def gluten_suggest(recipe_id: int, db: Session = Depends(get_db)):
+    """Let Claude mark gluten ingredients and propose a gluten-free alternative per ingredient."""
+    recipe = _get_recipe(db, recipe_id)
+    ingredients = recipe.ingredients
+    try:
+        result = await suggest_gluten_free(recipe.name, [i["text"] for i in ingredients])
+    except Exception as e:
+        logger.error("Gluten-free suggestion failed: %s", e)
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    for idx, ing in enumerate(ingredients):
+        ing["gluten"] = idx in result["items"]
+        ing["gf_search"] = result["items"].get(idx, "")
+        ing["gf_product"] = None
+    recipe.ingredients = ingredients
+    recipe.gf_mode = result["mode"] if result["items"] else "none"
+    recipe.gf_note = result["note"]
+    db.commit()
+    return {"ok": True, "gf_mode": recipe.gf_mode, "gf_note": recipe.gf_note, "ingredients": ingredients}
 
 
 @router.get("/image/{recipe_id}")
@@ -153,14 +251,14 @@ async def import_recipe(
 @router.post("/recipe/{recipe_id}/delete")
 async def delete_recipe(recipe_id: int, db: Session = Depends(get_db)):
     recipe = _get_recipe(db, recipe_id)
-    for entry in db.execute(select(WeekmenuEntry).where(WeekmenuEntry.recipe_id == recipe_id)).scalars():
+    for entry in db.execute(select(PlanEntry).where(PlanEntry.recipe_id == recipe_id)).scalars():
         db.delete(entry)
     db.delete(recipe)
     db.commit()
     path = os.path.join(IMAGE_DIR, f"{recipe_id}.jpg")
     if os.path.exists(path):
         os.remove(path)
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse("/recepten", status_code=303)
 
 
 # ── AH producten ───────────────────────────────────────────────────────
@@ -187,33 +285,41 @@ async def save_ingredients(recipe_id: int, payload: IngredientsPayload, db: Sess
     return {"ok": True}
 
 
-async def _automatch(ingredients: list[dict]) -> int:
-    """Fill in the top AH search hit for every ingredient without a product."""
+async def _automatch(ingredients: list[dict], gluten_free: bool = False) -> int:
+    """Fill in the top AH search hit for every ingredient without a product (and gf alternative)."""
     sem = asyncio.Semaphore(4)
 
-    async def match(ing: dict) -> bool:
-        if ing.get("skip") or ing.get("product") or not ing.get("search"):
-            return False
+    async def find(term: str) -> dict | None:
         async with sem:
             try:
-                products = await ah_client.search_products(ing["search"], size=1)
+                products = await ah_client.search_products(term, size=1)
             except Exception as e:
-                logger.warning("AH search failed for %s: %s", ing["search"], e)
-                return False
-        if products:
-            ing["product"] = products[0]
-            return True
-        return False
+                logger.warning("AH search failed for %s: %s", term, e)
+                return None
+        return products[0] if products else None
 
-    results = await asyncio.gather(*(match(i) for i in ingredients))
-    return sum(results)
+    async def match(ing: dict) -> int:
+        if ing.get("skip"):
+            return 0
+        n = 0
+        if not ing.get("product") and ing.get("search"):
+            product = await find(ing["search"])
+            if product:
+                ing["product"], n = product, n + 1
+        if gluten_free and ing.get("gluten") and not ing.get("gf_product") and ing.get("gf_search"):
+            product = await find(ing["gf_search"])
+            if product:
+                ing["gf_product"], n = product, n + 1
+        return n
+
+    return sum(await asyncio.gather(*(match(i) for i in ingredients)))
 
 
 @router.post("/api/recipe/{recipe_id}/automatch")
 async def automatch(recipe_id: int, db: Session = Depends(get_db)):
     recipe = _get_recipe(db, recipe_id)
     ingredients = recipe.ingredients
-    matched = await _automatch(ingredients)
+    matched = await _automatch(ingredients, recipe.gf_mode != "none")
     recipe.ingredients = ingredients
     db.commit()
     return {"ok": True, "matched": matched, "ingredients": ingredients}
@@ -222,36 +328,151 @@ async def automatch(recipe_id: int, db: Session = Depends(get_db)):
 # ── Weekmenu ───────────────────────────────────────────────────────────
 
 
+def _locked_key(week_start: date) -> str:
+    return f"locked:{week_start}"
+
+
+def _week_recipes(db: Session, week_start: date) -> list[Recipe]:
+    """Recipes planned in a week; a recipe planned twice appears twice (double quantities)."""
+    entries = db.execute(
+        select(PlanEntry).where(PlanEntry.date >= str(week_start), PlanEntry.date <= str(week_start + timedelta(days=6)))
+    ).scalars().all()
+    by_id = {r.id: r for r in db.execute(select(Recipe).where(Recipe.id.in_({e.recipe_id for e in entries}))).scalars()}
+    return [by_id[e.recipe_id] for e in entries if e.recipe_id in by_id]
+
+
+def _pushed(db: Session, week_start: date) -> dict[int, int]:
+    rows = db.execute(select(CartPush).where(CartPush.week_start == str(week_start))).scalars()
+    return {r.product_id: r.quantity for r in rows}
+
+
+def week_status(db: Session, week_start: date) -> dict:
+    """Compare what the week needs with what we already put on the AH list."""
+    cart, unmatched = aggregate_cart(_week_recipes(db, week_start))
+    pushed = _pushed(db, week_start)
+    missing = [
+        {"name": item["name"], "quantity": item["quantity"] - pushed.get(item["product_id"], 0)}
+        for item in cart
+        if item["quantity"] > pushed.get(item["product_id"], 0)
+    ]
+    return {
+        "needed": len(cart),
+        "missing": missing,
+        "unmatched": unmatched,
+        "complete": bool(cart) and not missing and not unmatched,
+        "locked": _get_setting(db, _locked_key(week_start)) == "1",
+    }
+
+
 @router.get("/weekmenu", response_class=HTMLResponse)
-async def weekmenu_page(request: Request, db: Session = Depends(get_db)):
+async def weekmenu_page(request: Request, week: str | None = None, db: Session = Depends(get_db)):
+    monday = parse_week(week)
     recipes = db.execute(select(Recipe).order_by(Recipe.name)).scalars().all()
-    entries = db.execute(select(WeekmenuEntry)).scalars().all()
-    by_day: dict[int, list[int]] = {}
+    entries = db.execute(
+        select(PlanEntry).where(PlanEntry.date >= str(monday), PlanEntry.date <= str(monday + timedelta(days=6)))
+    ).scalars().all()
+    plan: dict[str, list[int]] = {}
     for e in entries:
-        by_day.setdefault(e.day, []).append(e.recipe_id)
+        plan.setdefault(e.date, []).append(e.recipe_id)
+    days = [{"date": str(monday + timedelta(days=i)), "label": day_label(monday + timedelta(days=i))} for i in range(7)]
     return templates.TemplateResponse(
-        request, "weekmenu.html", {"recipes": recipes,
-            "days": list(enumerate(DAYS)),
-            "by_day": by_day,
+        request, "weekmenu.html",
+        {
+            "week": str(monday),
+            "prev_week": str(monday - timedelta(days=7)),
+            "next_week": str(monday + timedelta(days=7)),
+            "recipes": [{"id": r.id, "name": r.name} for r in recipes],
+            "days": days,
+            "plan": plan,
+            "status": week_status(db, monday),
             "has_token": bool(_get_setting(db, "ah_refresh_token") or _get_setting(db, "ah_user_token")),
         },
     )
 
 
-class WeekmenuPayload(BaseModel):
-    days: dict[int, list[int]]  # day index -> recipe ids
+class PlanPayload(BaseModel):
+    week: str
+    days: dict[str, list[int]]  # ISO date -> recipe ids
 
 
-@router.post("/api/weekmenu")
-async def save_weekmenu(payload: WeekmenuPayload, db: Session = Depends(get_db)):
-    for entry in db.execute(select(WeekmenuEntry)).scalars():
+@router.post("/api/plan")
+async def save_plan(payload: PlanPayload, db: Session = Depends(get_db)):
+    monday = parse_week(payload.week)
+    valid = {str(monday + timedelta(days=i)) for i in range(7)}
+    for entry in db.execute(select(PlanEntry).where(PlanEntry.date.in_(valid))).scalars():
         db.delete(entry)
     for day, ids in payload.days.items():
-        if 0 <= day <= 6:
+        if day in valid:
             for rid in ids:
-                db.add(WeekmenuEntry(day=day, recipe_id=rid))
+                if db.get(Recipe, rid):
+                    db.add(PlanEntry(date=day, recipe_id=rid))
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "status": week_status(db, monday)}
+
+
+class WeekPayload(BaseModel):
+    week: str
+    locked: bool | None = None
+
+
+@router.post("/api/plan/sync")
+async def sync_week(payload: WeekPayload, db: Session = Depends(get_db)):
+    """Put everything the week still needs on the AH list and report if the week is complete.
+
+    With `locked` set, the week is also locked ("vastgezet") or unlocked.
+    """
+    monday = parse_week(payload.week)
+    if payload.locked is False:
+        _set_setting(db, _locked_key(monday), "0")
+        return {"ok": True, "status": week_status(db, monday)}
+
+    recipes = _week_recipes(db, monday)
+    if not recipes:
+        return {"ok": False, "error": "Er staan nog geen recepten in deze week."}
+    for recipe in {r.id: r for r in recipes}.values():
+        ingredients = recipe.ingredients
+        if await _automatch(ingredients, recipe.gf_mode != "none"):
+            recipe.ingredients = ingredients
+    db.commit()
+
+    cart, _ = aggregate_cart(recipes)
+    pushed = _pushed(db, monday)
+    delta = [
+        {**item, "quantity": item["quantity"] - pushed.get(item["product_id"], 0)}
+        for item in cart
+        if item["quantity"] > pushed.get(item["product_id"], 0)
+    ]
+    added = 0
+    if delta:
+        access_token = _get_setting(db, "ah_user_token")
+        refresh_token = _get_setting(db, "ah_refresh_token")
+        if not access_token and not refresh_token:
+            return {"ok": False, "error": "AH niet gekoppeld. Ga naar Instellingen."}
+
+        def _save_tokens(new_access: str, new_refresh: str) -> None:
+            _set_setting(db, "ah_user_token", new_access)
+            _set_setting(db, "ah_refresh_token", new_refresh)
+
+        ah_client.set_user_tokens(access_token, refresh_token, on_tokens_updated=_save_tokens)
+        try:
+            await ah_client.add_to_cart(delta)
+        except Exception as e:
+            logger.error("Failed to fill AH list for week %s: %s", monday, e)
+            return {"ok": False, "error": str(e)}
+        rows = {r.product_id: r for r in db.execute(select(CartPush).where(CartPush.week_start == str(monday))).scalars()}
+        for item in delta:
+            row = rows.get(item["product_id"])
+            if row:
+                row.quantity += item["quantity"]
+            else:
+                db.add(CartPush(week_start=str(monday), product_id=item["product_id"],
+                                quantity=item["quantity"], name=item["name"]))
+        db.commit()
+        added = len(delta)
+
+    if payload.locked:
+        _set_setting(db, _locked_key(monday), "1")
+    return {"ok": True, "added": added, "status": week_status(db, monday)}
 
 
 # ── Boodschappenlijstje van AH ─────────────────────────────────────────
@@ -262,22 +483,48 @@ class CartPayload(BaseModel):
 
 
 def aggregate_cart(recipes: list[Recipe]) -> tuple[list[dict], list[str]]:
-    """Merge ingredients over recipes. Returns (cart items, unmatched ingredient texts)."""
+    """Merge ingredients over recipes. Returns (cart items, unmatched ingredient texts).
+
+    Gluten-free handling per recipe (`gf_mode`) for ingredients marked `gluten`:
+    "extra" buys the gluten-free product on top of the normal one (for 1 person),
+    "replace" buys only the gluten-free product (for everyone).
+    """
     cart: dict[int, dict] = {}
     unmatched: list[str] = []
+
+    def add(product: dict, qty: int) -> None:
+        if product["id"] in cart:
+            cart[product["id"]]["quantity"] += qty
+        else:
+            cart[product["id"]] = {"product_id": product["id"], "quantity": qty, "name": product.get("name", "")}
+
     for recipe in recipes:
         for ing in recipe.ingredients:
             if ing.get("skip"):
                 continue
-            product = ing.get("product")
-            if not product or not product.get("id"):
-                unmatched.append(ing.get("text", ""))
-                continue
+            text = ing.get("text", "")
             qty = max(1, int(ing.get("quantity") or 1))
-            if product["id"] in cart:
-                cart[product["id"]]["quantity"] += qty
+            product = ing.get("product")
+            has_product = bool(product and product.get("id"))
+            gf = ing.get("gf_product")
+            has_gf = bool(gf and gf.get("id"))
+
+            if ing.get("gluten") and recipe.gf_mode == "replace":
+                if has_gf:
+                    add(gf, qty)
+                else:
+                    unmatched.append(f"{text} (glutenvrij)")
+                continue
+
+            if has_product:
+                add(product, qty)
             else:
-                cart[product["id"]] = {"product_id": product["id"], "quantity": qty, "name": product.get("name", "")}
+                unmatched.append(text)
+            if ing.get("gluten") and recipe.gf_mode == "extra":
+                if has_gf:
+                    add(gf, 1)
+                else:
+                    unmatched.append(f"{text} (glutenvrij)")
     return list(cart.values()), unmatched
 
 
@@ -290,7 +537,7 @@ async def fill_cart(payload: CartPayload, db: Session = Depends(get_db)):
     # Match whatever is still unmatched so a one-click flow works
     for recipe in recipes:
         ingredients = recipe.ingredients
-        if await _automatch(ingredients):
+        if await _automatch(ingredients, recipe.gf_mode != "none"):
             recipe.ingredients = ingredients
     db.commit()
 
@@ -314,6 +561,50 @@ async def fill_cart(payload: CartPayload, db: Session = Depends(get_db)):
         logger.error("Failed to fill AH list: %s", e)
         return {"ok": False, "error": str(e)}
     return {"ok": True, "items_added": len(cart), "unmatched": unmatched}
+
+
+# ── AH-recepten (Allerhande) ───────────────────────────────────────────
+
+
+@router.get("/allerhande", response_class=HTMLResponse)
+async def allerhande_page(request: Request, q: str = "", db: Session = Depends(get_db)):
+    results, error = [], ""
+    if q.strip():
+        try:
+            results = await ah_client.search_recipes(q.strip())
+        except Exception as e:
+            logger.error("Allerhande search failed: %s", e)
+            error = f"Zoeken bij AH mislukt: {e}"
+    saved = set(db.execute(select(Recipe.ah_recipe_id).where(Recipe.ah_recipe_id.is_not(None))).scalars())
+    return templates.TemplateResponse(
+        request, "allerhande.html", {"q": q, "results": results, "error": error, "saved": saved},
+    )
+
+
+@router.post("/api/allerhande/add")
+async def allerhande_add(recipe_id: int = Form(...), db: Session = Depends(get_db)):
+    existing = db.execute(select(Recipe).where(Recipe.ah_recipe_id == recipe_id)).scalar_one_or_none()
+    if existing:
+        return {"ok": True, "id": existing.id}
+    try:
+        data = convert_ah_recipe(await ah_client.get_recipe(recipe_id))
+    except Exception as e:
+        logger.error("Fetching Allerhande recipe %s failed: %s", recipe_id, e)
+        return JSONResponse({"ok": False, "error": f"Recept ophalen mislukt: {e}"}, status_code=502)
+    if not data["name"] or not data["ingredients"]:
+        return JSONResponse({"ok": False, "error": "Dit recept bevat geen ingrediënten."}, status_code=422)
+
+    recipe = Recipe(
+        name=data["name"], description=data["description"], servings=data["servings"],
+        total_time=data["total_time"], ah_recipe_id=recipe_id,
+        source_url=f"https://www.ah.nl/allerhande/recept/R-R{recipe_id}",
+    )
+    recipe.ingredients = data["ingredients"]
+    recipe.instructions = data["instructions"]
+    db.add(recipe)
+    db.commit()
+    logger.info("Added Allerhande recipe %s (id=%s)", recipe.name, recipe.id)
+    return {"ok": True, "id": recipe.id}
 
 
 # ── Import uit Mealie ──────────────────────────────────────────────────

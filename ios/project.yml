@@ -1,0 +1,26 @@
+name: AHRecepten
+options:
+  bundleIdPrefix: nl.gerdjan
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  AHRecepten:
+    type: application
+    platform: iOS
+    sources: [AHRecepten]
+    info:
+      path: AHRecepten/Info.plist
+      properties:
+        CFBundleDisplayName: Recepten
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # Toestaan dat de server op het thuisnetwerk via http bereikbaar is (bijv. http://synology.local:9927)
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: nl.gerdjan.ahrecepten
+        SWIFT_VERSION: "5.9"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"

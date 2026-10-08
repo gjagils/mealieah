@@ -1,3 +1,4 @@
+import html
 from typing import Callable
 
 import httpx
@@ -11,6 +12,8 @@ AH_REDIRECT_URI = "appie://login-exit"
 AH_REFRESH_URL = "https://api.ah.nl/mobile-auth/v1/auth/token/refresh"
 AH_SEARCH_URL = "https://api.ah.nl/mobile-services/product/search/v2"
 AH_CART_URL = "https://api.ah.nl/mobile-services/shoppinglist/v2/items"
+AH_GRAPHQL_URL = "https://api.ah.nl/graphql"
+AH_RECIPE_URL = "https://www.ah.nl/allerhande/recept/R-R{id}/{slug}"
 
 DEFAULT_HEADERS = {
     "User-Agent": "Appie/8.22.3",
@@ -149,6 +152,60 @@ class AHClient:
         logger.debug("Found %d AH products for '%s'", len(products), query)
         return products
 
+    async def graphql(self, query: str, variables: dict) -> dict:
+        """Run a GraphQL query with the user token when set, else an anonymous one."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            for attempt in (1, 2):
+                token = self._user_token or await self._get_anonymous_token()
+                headers = {
+                    **DEFAULT_HEADERS,
+                    "x-client-name": "appie-ios",
+                    "x-client-version": "9.28",
+                    "Authorization": f"Bearer {token}",
+                }
+                resp = await client.post(
+                    AH_GRAPHQL_URL, headers=headers, json={"query": query, "variables": variables}
+                )
+                if resp.status_code == 401 and attempt == 1 and not self._user_token:
+                    self._anonymous_token = None
+                    continue
+                resp.raise_for_status()
+                body = resp.json()
+                if body.get("errors"):
+                    raise ValueError("AH: " + "; ".join(e.get("message", "") for e in body["errors"]))
+                return body["data"]
+        raise RuntimeError("unreachable")
+
+    async def search_recipes(self, text: str, size: int = 12) -> list[dict]:
+        query = """query RecipeSearch($query: RecipeSearchParams!) {
+  recipeSearch(query: $query) {
+    result { id title slug time { cook oven wait } serving { number type } }
+  }
+}"""
+        data = await self.graphql(query, {"query": {"searchText": text, "size": size}})
+        return [
+            {
+                "id": r["id"],
+                "title": html.unescape(r.get("title", "")),
+                "slug": r.get("slug", ""),
+                "url": AH_RECIPE_URL.format(id=r["id"], slug=r.get("slug", "")),
+                "servings": _servings(r.get("serving")),
+            }
+            for r in data["recipeSearch"]["result"]
+        ]
+
+    async def get_recipe(self, recipe_id: int) -> dict:
+        query = """query Recipe($id: Int!) {
+  recipe(id: $id) {
+    id title description cookTime
+    servings { number type }
+    ingredients { text name { singular } }
+    preparation { steps }
+  }
+}"""
+        data = await self.graphql(query, {"id": recipe_id})
+        return data["recipe"]
+
     async def add_to_cart(self, items: list[dict]) -> dict:
         if not self._user_token:
             raise ValueError(
@@ -192,6 +249,37 @@ class AHClient:
             resp.raise_for_status()
             logger.info("Successfully added items to AH cart")
             return resp.json()
+
+
+def _servings(serving: dict | None) -> str:
+    if not serving or not serving.get("number"):
+        return ""
+    return f"{serving['number']} {serving.get('type') or 'personen'}"
+
+
+NO_BUY = {"water", "kraanwater", "kokend water", "ijswater"}
+
+
+def convert_ah_recipe(r: dict) -> dict:
+    """Map an Allerhande recipe (GraphQL `recipe`) to our recipe fields."""
+    ingredients = []
+    for ing in r.get("ingredients") or []:
+        text = html.unescape(ing.get("text") or "").strip()
+        if not text:
+            continue
+        search = html.unescape(((ing.get("name") or {}).get("singular")) or "").strip()
+        skip = not search or search.lower() in NO_BUY
+        ingredients.append({"text": text, "search": search, "skip": skip, "quantity": 1, "product": None})
+    steps = [html.unescape(x).strip() for x in ((r.get("preparation") or {}).get("steps") or [])]
+    cook = r.get("cookTime")
+    return {
+        "name": html.unescape(r.get("title") or "").strip(),
+        "description": html.unescape(r.get("description") or "").strip(),
+        "servings": _servings(r.get("servings")),
+        "total_time": f"{cook} minuten" if cook else "",
+        "ingredients": ingredients,
+        "instructions": [x for x in steps if x],
+    }
 
 
 ah_client = AHClient()

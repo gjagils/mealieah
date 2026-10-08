@@ -2,54 +2,105 @@
 {% block title %}Weekmenu - AH Recepten{% endblock %}
 {% block content %}
 <h1>Weekmenu</h1>
-<p class="muted" style="margin-bottom: 1rem;">Kies per dag een of meer recepten. Alle ingrediënten gaan samen op je AH-lijstje; dubbele producten worden opgeteld.</p>
+<div class="week-nav">
+    <a class="btn btn-sm" href="/weekmenu?week={{ prev_week }}">&larr; Vorige</a>
+    <strong>Week van {{ week }}</strong>
+    <a class="btn btn-sm" href="/weekmenu?week={{ next_week }}">Volgende &rarr;</a>
+</div>
+
 {% if not recipes %}
-<p>Nog geen recepten. <a href="/">Voeg er eerst een toe.</a></p>
+<p>Nog geen recepten. <a href="/recepten">Voeg er eerst een toe.</a></p>
 {% else %}
-<section class="settings-section">
-    {% for idx, name in days %}
-    <div style="margin-bottom: 0.75rem;">
-        <strong>{{ name }}</strong>
-        <div class="day" data-day="{{ idx }}">
-            <select class="day-select" multiple size="3" style="width:100%;max-width:420px;">
-                {% for r in recipes %}
-                <option value="{{ r.id }}" {% if r.id in by_day.get(idx, []) %}selected{% endif %}>{{ r.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-    </div>
-    {% endfor %}
-    <button class="btn btn-primary" id="cart-btn" {% if not has_token %}disabled title="Koppel eerst AH in Instellingen"{% endif %}>Alles op AH-lijstje</button>
-    <span id="status" class="muted" style="margin-left: 0.5rem;"></span>
-</section>
+<div id="days"></div>
+
+<div class="status-box" id="status-box"></div>
+<button class="btn btn-primary" id="lock-btn" {% if not has_token %}disabled title="Koppel eerst AH in Instellingen"{% endif %}></button>
+<button class="btn" id="sync-btn" {% if not has_token %}disabled{% endif %}>Controleer en vul aan</button>
+<span id="msg" class="muted"></span>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
-const statusEl = document.getElementById("status");
-function say(msg, bad) { statusEl.textContent = msg; statusEl.style.color = bad ? "var(--red)" : ""; }
-function collect() {
-    const days = {};
-    document.querySelectorAll(".day").forEach(d => {
-        days[d.dataset.day] = [...d.querySelector("select").selectedOptions].map(o => parseInt(o.value));
+const WEEK = {{ week|tojson }};
+const RECIPES = {{ recipes|tojson }};
+const DAYS = {{ days|tojson }};
+const plan = {{ plan|tojson }};
+let status = {{ status|tojson }};
+const nameOf = id => (RECIPES.find(r => r.id === id) || {name: "?"}).name;
+const msg = document.getElementById("msg");
+
+async function post(url, body) {
+    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    return r.json();
+}
+
+async function savePlan() {
+    const r = await post("/api/plan", {week: WEEK, days: plan});
+    status = r.status; renderStatus();
+}
+
+function renderDays() {
+    const el = document.getElementById("days");
+    el.innerHTML = "";
+    DAYS.forEach(d => {
+        const card = document.createElement("div");
+        card.className = "day-card";
+        card.innerHTML = `<h3>${d.label}</h3>`;
+        (plan[d.date] || []).forEach((id, idx) => {
+            const row = document.createElement("div");
+            row.className = "day-recipe";
+            row.innerHTML = `<span></span>`;
+            row.firstChild.textContent = nameOf(id);
+            const rm = document.createElement("button");
+            rm.className = "btn btn-sm btn-danger"; rm.textContent = "✕";
+            rm.onclick = () => { plan[d.date].splice(idx, 1); savePlan(); renderDays(); };
+            row.appendChild(rm);
+            card.appendChild(row);
+        });
+        const sel = document.createElement("select");
+        sel.innerHTML = `<option value="">+ recept toevoegen</option>` +
+            RECIPES.map(r => `<option value="${r.id}">${r.name.replace(/</g, "&lt;")}</option>`).join("");
+        sel.style.cssText = "width:100%;min-height:44px;margin-top:0.4rem;";
+        sel.onchange = () => {
+            if (!sel.value) return;
+            (plan[d.date] = plan[d.date] || []).push(parseInt(sel.value));
+            savePlan(); renderDays();
+        };
+        card.appendChild(sel);
+        el.appendChild(card);
     });
-    return days;
 }
-async function save() {
-    await fetch("/api/weekmenu", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({days: collect()})});
+
+function renderStatus() {
+    const box = document.getElementById("status-box");
+    const lock = document.getElementById("lock-btn");
+    let html = "";
+    if (status.locked) html += `<span class="chip">vastgezet</span> `;
+    if (status.complete) html += `<span class="chip">alle ${status.needed} producten staan op je AH-lijstje</span>`;
+    else if (!status.needed && !status.unmatched.length) html += `<span class="muted">Nog niets gepland.</span>`;
+    else {
+        if (status.missing.length) html += `<p><span class="chip chip-warn">nog ${status.missing.length} producten niet op je lijstje</span></p><ul>` +
+            status.missing.map(m => `<li>${m.quantity}× ${m.name.replace(/</g, "&lt;")}</li>`).join("") + `</ul>`;
+        if (status.unmatched.length) html += `<p><span class="chip chip-warn">geen AH-product gekoppeld</span></p><ul>` +
+            status.unmatched.map(t => `<li>${t.replace(/</g, "&lt;")}</li>`).join("") + `</ul><p class="muted">Koppel die in het recept, of vink ze uit.</p>`;
+    }
+    box.innerHTML = html;
+    lock.textContent = status.locked ? "Weekmenu ontgrendelen" : "Weekmenu vastzetten";
 }
-document.querySelectorAll(".day-select").forEach(s => s.addEventListener("change", save));
-const btn = document.getElementById("cart-btn");
-if (btn) btn.onclick = async () => {
-    const all = [...new Set(Object.values(collect()).flat())];
-    if (!all.length) { say("Kies eerst recepten", true); return; }
-    say("Bezig, producten zoeken en toevoegen...");
-    const r = await (await fetch("/api/cart/fill", {
-        method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({recipe_ids: all}),
-    })).json();
-    if (r.ok) say(`${r.items_added} producten op je AH-lijstje` + (r.unmatched.length ? ` — niet gevonden: ${r.unmatched.join(", ")}` : ""));
-    else say(r.error, true);
-};
+
+async function run(body) {
+    msg.textContent = "Bezig...";
+    const r = await post("/api/plan/sync", body);
+    if (!r.ok) { msg.textContent = r.error; msg.style.color = "var(--red)"; return; }
+    msg.style.color = ""; msg.textContent = r.added ? `${r.added} producten toegevoegd` : "";
+    status = r.status; renderStatus();
+}
+const lockBtn = document.getElementById("lock-btn");
+if (lockBtn) {
+    lockBtn.onclick = () => run({week: WEEK, locked: !status.locked});
+    document.getElementById("sync-btn").onclick = () => run({week: WEEK});
+    renderDays(); renderStatus();
+}
 </script>
 {% endblock %}

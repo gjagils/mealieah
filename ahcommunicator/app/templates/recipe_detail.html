@@ -1,12 +1,29 @@
 {% extends "base.html" %}
 {% block title %}{{ recipe.name }} - AH Recepten{% endblock %}
 {% block content %}
-<p class="breadcrumb"><a href="/">Recepten</a> / {{ recipe.name }}</p>
+<p class="breadcrumb"><a href="/recepten">Recepten</a> / {{ recipe.name }}</p>
 <h1>{{ recipe.name }}</h1>
 {% if recipe.image_url %}<img src="{{ recipe.image_url }}" alt="" referrerpolicy="no-referrer" style="max-width:100%;max-height:300px;border-radius:8px;margin-bottom:1rem;">{% endif %}
 <p class="muted">{{ recipe.servings }}{% if recipe.servings and recipe.total_time %} · {% endif %}{{ recipe.total_time }}
     {% if recipe.source_url %} · <a href="{{ recipe.source_url }}" target="_blank" rel="noopener">bron</a>{% endif %}</p>
 {% if recipe.description %}<p style="margin: 0.5rem 0 1rem;">{{ recipe.description }}</p>{% endif %}
+
+<p style="margin: 0.75rem 0;"><a class="btn btn-primary" href="/recipe/{{ recipe.id }}/koken">Kookmodus</a></p>
+
+<section class="settings-section">
+    <h2>Glutenvrij voor minstens 1 persoon</h2>
+    <select id="gf-mode" style="min-height:44px;width:100%;max-width:420px;">
+        <option value="none" {% if recipe.gf_mode == "none" %}selected{% endif %}>Niet nodig</option>
+        <option value="extra" {% if recipe.gf_mode == "extra" %}selected{% endif %}>Extra glutenvrij product erbij (voor 1 persoon)</option>
+        <option value="replace" {% if recipe.gf_mode == "replace" %}selected{% endif %}>Ingrediënt voor iedereen vervangen</option>
+    </select>
+    <input id="gf-note" class="form-input" style="width:100%;margin-top:0.5rem;" placeholder="Notitie, bijv. glutenvrije pasta apart koken" value="{{ recipe.gf_note }}">
+    <div style="margin-top:0.5rem;">
+        <button class="btn" id="gf-suggest">Laat Claude een voorstel doen</button>
+        <button class="btn btn-primary" id="gf-save">Opslaan</button>
+        <span id="gf-status" class="muted"></span>
+    </div>
+</section>
 
 <section class="settings-section">
     <h2>Ingrediënten</h2>
@@ -60,6 +77,13 @@ function render() {
         const text = document.createElement("td");
         text.textContent = ing.text;
         if (ing.skip) text.style.opacity = "0.5";
+        if (ing.gluten) {
+            const chip = document.createElement("div");
+            chip.className = "chip chip-warn";
+            const gfp = ing.gf_product ? ` → ${ing.gf_product.name}` : "";
+            chip.textContent = `bevat gluten: ${ing.gf_search || "?"}${gfp}`;
+            text.appendChild(chip);
+        }
 
         const prod = document.createElement("td");
         if (!ing.skip) {
@@ -117,6 +141,27 @@ document.getElementById("cart-btn").onclick = async () => {
     if (r.ok) {
         say(`${r.items_added} producten op je AH-lijstje` + (r.unmatched.length ? ` — niet gevonden: ${r.unmatched.join(", ")}` : ""));
     } else say(r.error, true);
+};
+
+const gfStatus = document.getElementById("gf-status");
+async function saveGluten() {
+    const r = await (await fetch(`/api/recipe/${RECIPE_ID}/gluten`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({gf_mode: document.getElementById("gf-mode").value,
+                              gf_note: document.getElementById("gf-note").value, ingredients}),
+    })).json();
+    gfStatus.textContent = r.ok ? "Opgeslagen" : r.error;
+}
+document.getElementById("gf-save").onclick = saveGluten;
+document.getElementById("gf-suggest").onclick = async () => {
+    gfStatus.textContent = "Claude kijkt mee...";
+    const r = await (await fetch(`/api/recipe/${RECIPE_ID}/gluten-suggest`, {method: "POST"})).json();
+    if (!r.ok) { gfStatus.textContent = r.error; return; }
+    ingredients = r.ingredients;
+    document.getElementById("gf-mode").value = r.gf_mode;
+    document.getElementById("gf-note").value = r.gf_note;
+    render();
+    gfStatus.textContent = r.gf_mode === "none" ? "Geen gluten gevonden" : "Voorstel ingevuld (en opgeslagen)";
 };
 
 render();

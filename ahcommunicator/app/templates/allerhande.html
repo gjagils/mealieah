@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}AH-recepten - AH Recepten{% endblock %}
+{% block content %}
+<h1>AH-recepten</h1>
+<p class="muted" style="margin-bottom: 1rem;">Zoek in Allerhande en zet recepten in je eigen bibliotheek. Daarna werken ze net als je andere recepten: in het weekmenu en op je boodschappenlijstje.</p>
+
+<form method="get" action="/allerhande" class="form-group" style="margin-bottom: 1rem;">
+    <input type="text" name="q" value="{{ q }}" class="form-input" placeholder="Bijv. glutenvrije pasta, stamppot, kip curry" autofocus>
+    <button class="btn btn-primary" type="submit">Zoeken</button>
+</form>
+
+{% if error %}<p style="color: var(--red);">{{ error }}</p>{% endif %}
+{% if q and not results and not error %}<p class="muted">Niets gevonden.</p>{% endif %}
+
+<table class="settings-table">
+    {% for r in results %}
+    <tr>
+        <td><a href="{{ r.url }}" target="_blank" rel="noopener">{{ r.title }}</a>
+            <div class="muted">{{ r.servings }}</div></td>
+        <td>
+            {% if r.id in saved %}<span class="badge badge-mapped">In je bibliotheek</span>
+            {% else %}<button class="btn btn-sm add-btn" data-id="{{ r.id }}">Toevoegen</button>{% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll(".add-btn").forEach(btn => btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "Bezig...";
+    const fd = new FormData(); fd.append("recipe_id", btn.dataset.id);
+    const r = await (await fetch("/api/allerhande/add", {method: "POST", body: fd})).json();
+    if (r.ok) { btn.outerHTML = `<a class="btn btn-sm" href="/recipe/${r.id}">Bekijken</a>`; }
+    else { btn.disabled = false; btn.textContent = "Mislukt, opnieuw"; btn.title = r.error; }
+});
+</script>
+{% endblock %}
