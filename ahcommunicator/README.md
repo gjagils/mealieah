@@ -4,7 +4,7 @@ Zet een recept (website-link, geplakte tekst of foto's) om naar een gestructuree
 koppel de ingrediënten aan Albert Heijn-producten en zet ze met één klik op je AH-boodschappenlijstje.
 Plan daarnaast een weekmenu en doe de boodschappen voor de hele week in één keer.
 
-Losstaande variant van `mealieah`: geen Mealie en geen Postgres nodig (SQLite).
+Losstaande variant van `mealieah`: geen Mealie en geen Postgres nodig (SQLite). Bestaande recepten haal je in één keer uit Mealie via Instellingen.
 
 ## Starten
 

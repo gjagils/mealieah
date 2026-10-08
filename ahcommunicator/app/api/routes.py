@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.clients.ah import ah_client
 from app.clients.extractor import extract_recipe, fetch_url
+from app.clients.mealie import MealieClient, convert_recipe
 from app.config import settings
 from app.database import get_db
 from app.logging_config import logger
@@ -315,6 +316,70 @@ async def fill_cart(payload: CartPayload, db: Session = Depends(get_db)):
     return {"ok": True, "items_added": len(cart), "unmatched": unmatched}
 
 
+# ── Import uit Mealie ──────────────────────────────────────────────────
+
+
+@router.post("/settings/mealie")
+async def import_from_mealie(
+    request: Request,
+    mealie_url: str = Form(""),
+    mealie_token: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    url = mealie_url.strip() or _get_setting(db, "mealie_url")
+    token = mealie_token.strip() or _get_setting(db, "mealie_token")
+    if not url:
+        return _render_settings(request, db, mealie_error="Vul de URL van Mealie in.")
+    if not url.startswith(("http://", "https://")):
+        return _render_settings(request, db, mealie_error="De URL moet met http:// of https:// beginnen.")
+    _set_setting(db, "mealie_url", url)
+    _set_setting(db, "mealie_token", token)
+
+    mealie = MealieClient(url, token)
+    imported = skipped = failed = 0
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            slugs = await mealie.list_slugs(client)
+            existing = set(db.execute(select(Recipe.mealie_slug).where(Recipe.mealie_slug.is_not(None))).scalars())
+            for slug in slugs:
+                if slug in existing:
+                    skipped += 1
+                    continue
+                try:
+                    full = await mealie.get_recipe(client, slug)
+                    data = convert_recipe(full)
+                    if not data["name"] or not data["ingredients"]:
+                        failed += 1
+                        continue
+                    recipe = Recipe(
+                        name=data["name"], description=data["description"], servings=data["servings"],
+                        total_time=data["total_time"], source_url=data["source_url"], mealie_slug=slug,
+                    )
+                    recipe.ingredients = data["ingredients"]
+                    recipe.instructions = data["instructions"]
+                    db.add(recipe)
+                    db.commit()
+                    if full.get("id"):
+                        image = await mealie.get_image(client, full["id"])
+                        if image and _save_food_photo(recipe.id, image):
+                            recipe.image_url = f"/image/{recipe.id}"
+                            db.commit()
+                    imported += 1
+                except Exception as e:
+                    db.rollback()
+                    logger.warning("Importing Mealie recipe %s failed: %s", slug, e)
+                    failed += 1
+    except httpx.HTTPStatusError as e:
+        msg = f"Mealie gaf een fout (HTTP {e.response.status_code}). Controleer URL en token."
+        return _render_settings(request, db, mealie_error=msg)
+    except httpx.HTTPError as e:
+        return _render_settings(request, db, mealie_error=f"Mealie niet bereikbaar: {e}")
+
+    msg = f"{imported} recepten geïmporteerd, {skipped} stonden er al" + (f", {failed} mislukt." if failed else ".")
+    logger.info("Mealie import: %s", msg)
+    return _render_settings(request, db, mealie_result=msg)
+
+
 # ── Instellingen ───────────────────────────────────────────────────────
 
 
@@ -345,7 +410,14 @@ async def ah_code_exchange(request: Request, callback_url: str = Form(""), db: S
         return _render_settings(request, db, ah_login_error=f"Koppelen mislukt: {e}")
 
 
-def _render_settings(request: Request, db: Session, ah_login_error: str = "", ah_login_success: bool = False):
+def _render_settings(
+    request: Request,
+    db: Session,
+    ah_login_error: str = "",
+    ah_login_success: bool = False,
+    mealie_error: str = "",
+    mealie_result: str = "",
+):
     return templates.TemplateResponse(
         request, "settings.html", {"ah_token_set": bool(_get_setting(db, "ah_user_token")),
             "ah_refresh_set": bool(_get_setting(db, "ah_refresh_token")),
@@ -353,5 +425,9 @@ def _render_settings(request: Request, db: Session, ah_login_error: str = "", ah
             "ah_login_url": ah_client.get_login_url(),
             "ah_login_error": ah_login_error,
             "ah_login_success": ah_login_success,
+            "mealie_url": _get_setting(db, "mealie_url"),
+            "mealie_token_set": bool(_get_setting(db, "mealie_token")),
+            "mealie_error": mealie_error,
+            "mealie_result": mealie_result,
         },
     )

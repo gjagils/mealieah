@@ -16,6 +16,8 @@ class Recipe(Base):
     servings: Mapped[str] = mapped_column(String(100), default="")
     total_time: Mapped[str] = mapped_column(String(100), default="")
     source_url: Mapped[str] = mapped_column(Text, default="")
+    # slug of the recipe in Mealie when imported from there (prevents duplicates)
+    mealie_slug: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
     image_url: Mapped[str] = mapped_column(Text, default="")
     # JSON list of {"text", "search", "skip", "quantity", "product": {...}|None}
     ingredients_json: Mapped[str] = mapped_column(Text, default="[]")

@@ -64,3 +64,31 @@ def test_weekmenu_roundtrip_and_delete(db):
     assert 'value="%d" selected' % r.id in client.get("/weekmenu").text
     assert client.post(f"/recipe/{r.id}/delete", follow_redirects=False).status_code == 303
     assert db.get(Recipe, r.id) is None
+
+
+def test_mealie_import_is_idempotent(db, monkeypatch):
+    class FakeMealie:
+        def __init__(self, url, token):
+            pass
+
+        async def list_slugs(self, client):
+            return ["pasta", "leeg"]
+
+        async def get_recipe(self, client, slug):
+            if slug == "leeg":
+                return {"id": "2", "name": "Leeg", "recipeIngredient": []}
+            return {"id": "1", "name": "Pasta", "recipeYield": "4",
+                    "recipeIngredient": [{"display": "250 g pasta", "food": {"name": "pasta"}}],
+                    "recipeInstructions": [{"text": "Kook."}]}
+
+        async def get_image(self, client, recipe_id):
+            return None
+
+    monkeypatch.setattr(routes, "MealieClient", FakeMealie)
+    client = TestClient(app)
+    first = client.post("/settings/mealie", data={"mealie_url": "http://mealie:9000", "mealie_token": "t"})
+    assert "1 recepten geïmporteerd, 0 stonden er al, 1 mislukt" in first.text
+    second = client.post("/settings/mealie", data={})
+    assert "0 recepten geïmporteerd, 1 stonden er al" in second.text
+    assert db.query(Recipe).count() == 1
+    assert client.post("/settings/mealie", data={"mealie_url": "ftp://x"}).status_code == 200

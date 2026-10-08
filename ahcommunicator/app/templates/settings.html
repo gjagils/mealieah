@@ -19,6 +19,23 @@
 </section>
 
 <section class="settings-section">
+    <h2>Recepten importeren uit Mealie</h2>
+    <p class="muted">Haalt al je recepten (met foto) uit Mealie. Recepten die er al staan worden overgeslagen, dus je kunt dit gerust opnieuw doen.
+        Maak in Mealie een API-token via Gebruikersprofiel &rarr; API-tokens.</p>
+    <form method="post" action="/settings/mealie" style="margin-top: 0.75rem;">
+        <div class="form-group">
+            <input type="url" name="mealie_url" value="{{ mealie_url }}" placeholder="https://recepten.gerdjan.nl" class="form-input">
+        </div>
+        <div class="form-group" style="margin-top: 0.5rem;">
+            <input type="password" name="mealie_token" placeholder="{{ 'API-token (opgeslagen, leeg laten om te behouden)' if mealie_token_set else 'API-token' }}" class="form-input" autocomplete="off">
+            <button type="submit" class="btn btn-primary">Importeren</button>
+        </div>
+    </form>
+    {% if mealie_error %}<p style="color: #c0392b; margin-top: 0.5rem;">{{ mealie_error }}</p>{% endif %}
+    {% if mealie_result %}<p style="color: #27ae60; margin-top: 0.5rem;">{{ mealie_result }}</p>{% endif %}
+</section>
+
+<section class="settings-section">
     <h2>Albert Heijn koppeling</h2>
     <p class="muted">Koppel je AH-account in twee stappen. Daarna ververst de app het token automatisch.</p>
     <div style="margin-top: 0.75rem;">
